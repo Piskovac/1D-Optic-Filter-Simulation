@@ -1,0 +1,47 @@
+{
+  "materials": {
+    "SiO": {
+      "name": "SiO\u2082 (Silicon dioxide, Silica, Quartz)",
+      "type": "database",
+      "id": "{\"base_name\": \"SiO\\u2082 (Silicon dioxide, Silica, Quartz)\", \"variants\": [[\"main|SiO2|Malitson\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Malitson 1965: n 0.21\\u20136.7 \\u00b5m\"], [\"main|SiO2|Nyakuchena\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Nyakuchena et al. 2023: n 1.10\\u20131.65 \\u00b5m\"], [\"main|SiO2|Arosa\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Arosa and de la Fuente 2020: n 0.26\\u20131.7 \\u00b5m\"], [\"main|SiO2|Franta\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Franta et al. 2016: n,k 0.0248\\u2013125 \\u00b5m\"], [\"main|SiO2|Popova\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Popova et al. 1972: n,k 7\\u201350 \\u00b5m\"], [\"main|SiO2|Ghosh-o\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Ghosh 1999: \\u03b1-Quartz, n(o) 0.198\\u20132.05 \\u00b5m\"], [\"main|SiO2|Ghosh-e\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Ghosh 1999: \\u03b1-Quartz, n(e) 0.198\\u20132.05 \\u00b5m\"], [\"main|SiO2|Radhakrishnan-o\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Radhakrishnan 1951: \\u03b1-Quartz; n(o) 0.18\\u20133 \\u00b5m\"], [\"main|SiO2|Radhakrishnan-e\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Radhakrishnan 1951: \\u03b1-Quartz; n(e) 0.18\\u20133 \\u00b5m\"], [\"main|SiO2|Kischkat\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Kischkat et al. 2012: n,k 1.54\\u201314.3 \\u00b5m\"], [\"main|SiO2|Herguedas\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Herguedas and Carretero 2023: n,k 5.0\\u201325 \\u00b5m\"], [\"main|SiO2|Rodriguez-de_Marcos\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Rodr\\u00edguez-de Marcos et al. 2016: n,k 0.03\\u20131.5 \\u00b5m\"], [\"main|SiO2|Franta-25C\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Franta et al. 2016: n,k 0.0275\\u2013125 \\u00b5m; 25 \\u00b0C\"], [\"main|SiO2|Franta-300C\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Franta et al. 2016: n,k 0.0275\\u2013125 \\u00b5m; 300 \\u00b0C\"], [\"main|SiO2|Gao\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Gao et al. 2013: n,k 0.252\\u20131.25 \\u00b5m\"], [\"main|SiO2|Lemarchand\", \"SiO\\u2082 (Silicon dioxide, Silica, Quartz) - Lemarchand 2013: n,k 0.25\\u20132.5 \\u00b5m\"]]}",
+      "is_defect": false
+    },
+    "ZnT": {
+      "name": "ZnTe (Zinc telluride)",
+      "type": "database",
+      "id": "{\"base_name\": \"ZnTe (Zinc telluride)\", \"variants\": [[\"main|ZnTe|Marple\", \"ZnTe (Zinc telluride) - Marple 1964: n 0.58\\u20132.5 \\u00b5m\"], [\"main|ZnTe|Li\", \"ZnTe (Zinc telluride) - Li 1984: n 0.55\\u201330 \\u00b5m;\"], [\"main|ZnTe|Sato\", \"ZnTe (Zinc telluride) - Sato and Adachi 1993: n,k 0.221\\u20130.827 \\u00b5m\"]]}",
+      "is_defect": false
+    },
+    "NBL": {
+      "name": "Normal Blood",
+      "type": "custom_real",
+      "n": 1.365,
+      "k": 0.0,
+      "is_defect": true
+    },
+    "IBL": {
+      "name": "Infected Blood",
+      "type": "custom_real",
+      "n": 1.4,
+      "k": 0.0,
+      "is_defect": true
+    }
+  },
+  "arrays": {
+    "M1": "SiO*ZnT"
+  },
+  "filter": "(M1)^5*NBL*(M1)^5",
+  "calculation": {
+    "wavelength_start": 400.0,
+    "wavelength_end": 800.0,
+    "wavelength_steps": 100,
+    "incident_angle": 0.0,
+    "default_thickness": 100.0
+  },
+  "material_colors": {
+    "SiO": "#e73d51",
+    "ZnT": "#a51466",
+    "NBL": "#44664e",
+    "IBL": "#54e6eb"
+  }
+}
