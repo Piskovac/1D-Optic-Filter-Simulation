@@ -27,26 +27,54 @@ from PyQt5.QtWidgets import (
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
+
 class MaterialSearchAPI:
     """Class to handle interaction with refractiveindex.info database"""
 
     def __init__(self):
-        """Initialize the Material Search API with database caching"""
-        # Import the refractiveindex package
+        """Initialize the Material Search API with all caching in project directory"""
+        # Get the directory where the script is located
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+
+        # Create cache directory in project folder
+        self.cache_dir = os.path.join(script_dir, "cache")
+        if not os.path.exists(self.cache_dir):
+            try:
+                os.makedirs(self.cache_dir)
+                print(f"Created cache directory: {self.cache_dir}")
+            except Exception as e:
+                print(f"Could not create cache directory: {e}")
+                # Fall back to project directory
+                self.cache_dir = script_dir
+                print(f"Using project directory as cache: {self.cache_dir}")
+
+        # Define cache file paths
+        self.db_cache_path = os.path.join(self.cache_dir, "refractive_index_db.pickle")
+        self.material_cache_path = os.path.join(self.cache_dir, "material_cache.pickle")
+
+        print(f"Database cache: {self.db_cache_path}")
+        print(f"Material cache: {self.material_cache_path}")
+
+        # Initialize material cache - first try to load from disk
+        self.material_cache = {}
+        if os.path.exists(self.material_cache_path):
+            try:
+                with open(self.material_cache_path, 'rb') as f:
+                    self.material_cache = pickle.load(f)
+                print(f"Loaded material cache with {len(self.material_cache)} entries")
+            except Exception as e:
+                print(f"Could not load material cache: {e}")
+                self.material_cache = {}
+
+        self.initialized = False
+        self.database = None
+
         try:
+            # Import the refractiveindex package
             from refractiveindex import RefractiveIndexMaterial
             import refractiveindex.refractiveindex as ri
             self.RefractiveIndexMaterial = RefractiveIndexMaterial
             self.RefractiveIndex = ri.RefractiveIndex
-            self.initialized = True
-
-            # Define database cache location
-            self.cache_dir = os.path.join(os.path.expanduser("~"), ".optical_filter_designer")
-            self.db_cache_path = os.path.join(self.cache_dir, "refractive_index_db.pickle")
-
-            # Create cache directory if it doesn't exist
-            if not os.path.exists(self.cache_dir):
-                os.makedirs(self.cache_dir)
 
             # Check if cached database exists
             if os.path.exists(self.db_cache_path):
@@ -54,104 +82,132 @@ class MaterialSearchAPI:
                     # Load database from cache
                     with open(self.db_cache_path, 'rb') as f:
                         self.database = pickle.load(f)
-                    print("Refractiveindex.info database loaded from cache!")
+
+                    # Verify database integrity
+                    if hasattr(self.database, 'catalog') and self.database.catalog:
+                        print("Refractiveindex.info database loaded from cache successfully!")
+                        self.initialized = True
+                    else:
+                        print("Cached database appears to be empty or corrupt, will download again")
+                        self._download_database()
                 except Exception as e:
                     print(f"Error loading cached database: {e}")
-                    # Fall back to downloading if cache load fails
-                    self._download_and_cache_database()
+                    self._download_database()
             else:
-                # Download and cache the database
-                self._download_and_cache_database()
+                # No cache exists, download fresh
+                self._download_database()
 
-        except ImportError:
-            print("Error: refractiveindex package not found. Install with 'pip install refractiveindex'")
-            self.initialized = False
+        except ImportError as e:
+            print(f"Error: {e}")
+            print("The refractiveindex package is not installed. Install with 'pip install refractiveindex'")
+            QMessageBox.critical(None, "Missing Package",
+                                 "The refractiveindex package is not installed. Please install it with 'pip install refractiveindex'")
             sys.exit(1)  # Exit if refractiveindex is not available
 
-    def _download_and_cache_database(self):
+    def _download_database(self):
         """Download the database and save to cache"""
         print("Downloading refractiveindex.info database...")
-        self.database = self.RefractiveIndex()
 
-        # Save to cache file
         try:
-            with open(self.db_cache_path, 'wb') as f:
-                pickle.dump(self.database, f)
-            print("Refractiveindex.info database cached for future use!")
+            # Download the database - this will fetch from the internet
+            self.database = self.RefractiveIndex()
+
+            # Verify we got something
+            if hasattr(self.database, 'catalog') and self.database.catalog:
+                # Count materials for verification
+                material_count = sum(1 for shelf in self.database.catalog if 'SHELF' in shelf)
+                print(f"Downloaded database with {material_count} material shelves")
+
+                # Save to cache file
+                try:
+                    with open(self.db_cache_path, 'wb') as f:
+                        pickle.dump(self.database, f)
+                    print(f"Refractiveindex.info database cached to: {self.db_cache_path}")
+                    self.initialized = True
+                except Exception as e:
+                    print(f"Warning: Could not cache database: {e}")
+            else:
+                print("Error: Downloaded database appears to be invalid")
         except Exception as e:
-            print(f"Warning: Could not cache database: {e}")
+            print(f"Error downloading database: {e}")
+            QMessageBox.warning(None, "Database Error",
+                                f"Could not download material database. Some functionality may be limited.\n\nError: {str(e)}")
+
+    def _save_material_cache(self):
+        """Save the material cache to disk"""
+        try:
+            with open(self.material_cache_path, 'wb') as f:
+                pickle.dump(self.material_cache, f)
+            print(f"Material cache saved with {len(self.material_cache)} entries")
+        except Exception as e:
+            print(f"Could not save material cache: {e}")
 
     def search_materials(self, query):
         """
         Search for materials matching the query in the database
         """
-        if not query or not self.initialized:
+        if not query or not self.initialized or not self.database:
+            print("Material search unavailable - database not initialized")
             return []
 
         results = []
 
-        # Search through the catalog
-        for shelf in self.database.catalog:
-            if 'DIVIDER' in shelf:
-                continue
-
-            shelf_name = shelf.get('name', shelf.get('SHELF', ''))
-            shelf_id = shelf.get('SHELF', '')
-
-            for book in shelf.get('content', []):
-                if 'DIVIDER' in book:
+        try:
+            # Search through the catalog
+            for shelf in self.database.catalog:
+                if 'DIVIDER' in shelf:
                     continue
 
-                book_name = book.get('name', book.get('BOOK', ''))
-                book_id = book.get('BOOK', '')
+                shelf_name = shelf.get('name', shelf.get('SHELF', ''))
+                shelf_id = shelf.get('SHELF', '')
 
-                # Check if book name matches query
-                if query.lower() in book_id.lower() or query.lower() in book_name.lower():
-                    # Add all pages from this book
-                    for page in book.get('content', []):
-                        if 'DIVIDER' in page:
-                            continue
+                for book in shelf.get('content', []):
+                    if 'DIVIDER' in book:
+                        continue
 
-                        page_name = page.get('name', page.get('PAGE', ''))
-                        page_id = page.get('PAGE', '')
+                    book_name = book.get('name', book.get('BOOK', ''))
+                    book_id = book.get('BOOK', '')
 
-                        # Skip if page_id is empty
-                        if not page_id:
-                            continue
+                    # Check if book name matches query
+                    if query.lower() in book_id.lower() or query.lower() in book_name.lower():
+                        # Add all pages from this book
+                        for page in book.get('content', []):
+                            if 'DIVIDER' in page:
+                                continue
 
-                        material_id = f"{shelf_id}|{book_id}|{page_id}"
-                        material_name = f"{book_name} - {page_name}"
-                        results.append((material_id, material_name))
+                            page_name = page.get('name', page.get('PAGE', ''))
+                            page_id = page.get('PAGE', '')
 
-                # If not, check individual pages
-                else:
-                    for page in book.get('content', []):
-                        if 'DIVIDER' in page:
-                            continue
+                            # Skip if page_id is empty
+                            if not page_id:
+                                continue
 
-                        page_name = page.get('name', page.get('PAGE', ''))
-                        page_id = page.get('PAGE', '')
-
-                        # Skip if page_id is empty
-                        if not page_id:
-                            continue
-
-                        if query.lower() in page_id.lower() or query.lower() in page_name.lower():
                             material_id = f"{shelf_id}|{book_id}|{page_id}"
                             material_name = f"{book_name} - {page_name}"
                             results.append((material_id, material_name))
 
+                    # If not, check individual pages
+                    else:
+                        for page in book.get('content', []):
+                            if 'DIVIDER' in page:
+                                continue
+
+                            page_name = page.get('name', page.get('PAGE', ''))
+                            page_id = page.get('PAGE', '')
+
+                            # Skip if page_id is empty
+                            if not page_id:
+                                continue
+
+                            if query.lower() in page_id.lower() or query.lower() in page_name.lower():
+                                material_id = f"{shelf_id}|{book_id}|{page_id}"
+                                material_name = f"{book_name} - {page_name}"
+                                results.append((material_id, material_name))
+        except Exception as e:
+            print(f"Error during material search: {e}")
+            traceback.print_exc()
+
         return results
-
-    def get_material_details(self, material_id):
-        """Get shelf, book, page from material_id"""
-        if not material_id or not self.initialized:
-            return None, None, None
-
-        parts = material_id.split('|')
-        if len(parts) == 3:
-            return parts[0], parts[1], parts[2]
-        return None, None, None
 
     def get_wavelength_range(self, material_id):
         """Get the valid wavelength range for a material"""
@@ -175,6 +231,16 @@ class MaterialSearchAPI:
         except Exception as e:
             print(f"Error getting wavelength range for {material_id}: {e}")
             return (0, 0)
+
+    def get_material_details(self, material_id):
+        """Get shelf, book, page from material_id"""
+        if not material_id or not self.initialized:
+            return None, None, None
+
+        parts = material_id.split('|')
+        if len(parts) == 3:
+            return parts[0], parts[1], parts[2]
+        return None, None, None
 
     def get_refractive_index(self, material_id, wavelength):
         """
@@ -221,6 +287,11 @@ class MaterialSearchAPI:
 
             # Cache the result
             self.material_cache[cache_key] = n
+
+            # Periodically save the cache to disk (every 10 new entries)
+            if len(self.material_cache) % 10 == 0:
+                self._save_material_cache()
+
             return n
 
         except Exception as e:
@@ -331,7 +402,7 @@ class MaterialHandler:
 
 
 class TMM_Calculator:
-    """Custom TMM (Transfer Matrix Method) calculator that doesn't rely on PyTMM"""
+    """Custom TMM (Transfer Matrix Method) calculator with improved debugging"""
 
     def __init__(self):
         self.material_cache = {}  # Cache for material refractive indices
@@ -340,7 +411,9 @@ class TMM_Calculator:
 
     def get_refractive_index(self, material_id, wavelength):
         """
-        Get refractive index with caching to improve performance
+        Get refractive index with proper handling of out-of-range wavelengths
+        - For wavelengths below the minimum range: use the value at the minimum range
+        - For wavelengths above the maximum range: use the value at the maximum range
         """
         # If it's a direct numerical value, return it
         if not isinstance(material_id, str):
@@ -354,87 +427,281 @@ class TMM_Calculator:
         # Otherwise, compute and cache it
         try:
             from refractiveindex import RefractiveIndexMaterial
-            shelf, book, page = material_id.split('|')
-            material_obj = RefractiveIndexMaterial(shelf=shelf, book=book, page=page)
+            import traceback  # Make sure traceback is imported
 
-            # Get refractive index
-            n = material_obj.get_refractive_index(wavelength)
+            # Debug output
+            print(f"Getting refractive index for {material_id} at {wavelength} nm")
+
+            # Split the material ID
+            parts = material_id.split('|')
+            if len(parts) != 3:
+                print(f"Invalid material ID format: {material_id}")
+                raise ValueError(f"Invalid material ID format: {material_id}")
+
+            shelf, book, page = parts
+
+            # Debug info about the material
+            print(f"Material details - Shelf: {shelf}, Book: {book}, Page: {page}")
+
+            # Create material object
+            try:
+                material_obj = RefractiveIndexMaterial(shelf=shelf, book=book, page=page)
+                print(f"Successfully created RefractiveIndexMaterial object")
+            except Exception as e:
+                print(f"Error creating RefractiveIndexMaterial: {e}")
+                raise
+
+            # Verify material object has refractive index data
+            if not hasattr(material_obj, 'material') or not hasattr(material_obj.material, 'refractiveIndex'):
+                print(f"Material object lacks refractiveIndex data")
+                raise ValueError("Material lacks refractiveIndex data")
+
+            # Get the valid wavelength range (in μm)
+            range_min_um = material_obj.material.refractiveIndex.rangeMin  # This is already in μm
+            range_max_um = material_obj.material.refractiveIndex.rangeMax  # This is already in μm
+
+            # Convert range to nm for internal comparisons
+            range_min_nm = range_min_um * 1000  # μm to nm
+            range_max_nm = range_max_um * 1000  # μm to nm
+            print(f"Material wavelength range: {range_min_nm}-{range_max_nm} nm")
+
+            # Current wavelength in nm
+            wavelength_nm = wavelength
+
+            # Check if wavelength is within range and adjust if necessary
+            use_boundary = False
+            if wavelength_nm < range_min_nm:
+                # Use the minimum value for wavelengths below range
+                print(f"Wavelength {wavelength_nm} nm is below range, using {range_min_nm} nm instead")
+                actual_wavelength_nm = range_min_nm
+                use_boundary = True
+            elif wavelength_nm > range_max_nm:
+                # Use the maximum value for wavelengths above range
+                print(f"Wavelength {wavelength_nm} nm is above range, using {range_max_nm} nm instead")
+                actual_wavelength_nm = range_max_nm
+                use_boundary = True
+            else:
+                actual_wavelength_nm = wavelength_nm
+
+            # Convert to μm for the library call
+            actual_wavelength_um = actual_wavelength_nm / 1000
+            print(f"Getting index at {actual_wavelength_um} μm")
+
+            # Get refractive index with explicit bounds error disabled
+            # This is critical - the library will handle out-of-range values internally
+            try:
+                n = material_obj.get_refractive_index(actual_wavelength_um, bounds_error=False)
+                if use_boundary:
+                    print(f"Using boundary value n = {n} for out-of-range wavelength {wavelength_nm} nm")
+                else:
+                    print(f"Got refractive index n = {n}")
+            except Exception as e:
+                print(f"Error getting refractive index: {e}")
+                # Try with direct API access if available
+                try:
+                    if hasattr(material_obj.material, 'refractiveIndex'):
+                        n = material_obj.material.refractiveIndex.getRefractiveIndex(actual_wavelength_um,
+                                                                                     bounds_error=False)
+                        print(f"Got n = {n} using direct API access")
+                    else:
+                        raise e
+                except:
+                    # Re-raise the original error if direct access fails
+                    raise e
 
             # Try to get extinction coefficient if available
             try:
-                k = material_obj.get_extinction_coefficient(wavelength)
+                k = material_obj.get_extinction_coefficient(actual_wavelength_um, bounds_error=False)
                 if k > 0:
                     n = complex(n, k)
-            except:
-                pass
+                    if use_boundary:
+                        print(f"Using boundary complex n = {n} for out-of-range wavelength {wavelength_nm} nm")
+                    else:
+                        print(f"Got extinction coefficient k = {k}, complex n = {n}")
+            except Exception as e:
+                print(f"No extinction coefficient available: {e}")
 
             # Cache the result
             self.material_cache[cache_key] = n
             return n
 
         except Exception as e:
-            # Store the error in cache to avoid repeated attempts
-            self.material_cache[cache_key] = 1.0
-            return 1.0  # Default to air
+            # Print detailed error message
+            print(f"ERROR retrieving refractive index for {material_id} at {wavelength} nm: {e}")
+            import traceback
+            traceback.print_exc()
+
+            # Don't automatically default to air (1.0)!
+            # Try to recover usable data using several strategies:
+
+            # STRATEGY 1: Check if we have any existing data for this material at other wavelengths
+            existing_data = {}
+            for cached_key, cached_value in self.material_cache.items():
+                # Ensure the key is for the same material and has a wavelength component
+                if cached_key.startswith(f"{material_id}_") and '_' in cached_key:
+                    try:
+                        # Extract wavelength from cache key
+                        key_parts = cached_key.split('_')
+                        if len(key_parts) >= 2:
+                            existing_wavelength = float(key_parts[1])
+                            existing_data[existing_wavelength] = cached_value
+                    except (ValueError, IndexError):
+                        # Skip if wavelength extraction fails
+                        continue
+
+            if existing_data:
+                # Find the closest wavelength we have data for
+                wavelengths = list(existing_data.keys())
+                closest_wavelength = min(wavelengths, key=lambda x: abs(x - wavelength))
+                n = existing_data[closest_wavelength]
+                print(f"RECOVERY: Using cached value from closest wavelength {closest_wavelength} nm: n = {n}")
+                self.material_cache[cache_key] = n
+                return n
+
+            # STRATEGY 2: If no cached data, use intelligent material-specific defaults
+            # Check material name to determine appropriate default
+            material_name = material_id.lower()
+
+            if any(x in material_name for x in ['si', 'ge', 'gaas', 'inp', 'semiconductor', 'znte']):
+                print(f"RECOVERY: Using semiconductor default (n=3.5) for {material_id}")
+                default_n = 3.5
+            elif any(x in material_name for x in ['ag', 'au', 'cu', 'al', 'pt', 'metal']):
+                print(f"RECOVERY: Using metal default (n=0.5+5j) for {material_id}")
+                default_n = complex(0.5, 5.0)
+            elif any(x in material_name for x in ['tio2', 'sio2', 'glass', 'oxide']):
+                print(f"RECOVERY: Using oxide default (n=1.8) for {material_id}")
+                default_n = 1.8
+            else:
+                print(f"RECOVERY: Using dielectric default (n=1.5) for {material_id}")
+                default_n = 1.5
+
+            self.material_cache[cache_key] = default_n
+            return default_n
 
     def precompute_indices(self, stack, wavelengths):
         """
         Precompute all refractive indices for the stack at all wavelengths
-        to avoid repeatedly creating RefractiveIndexMaterial objects
-
-        Returns: dictionary of problematic materials with their wavelength ranges
+        with improved out-of-range handling
         """
         from refractiveindex import RefractiveIndexMaterial
+        import traceback  # Make sure traceback is imported
 
         # First, identify all unique material IDs
         material_ids = set()
         for material, _ in stack:
-            if isinstance(material, str):
+            if isinstance(material, str) and '|' in material:
                 material_ids.add(material)
 
         # Track problematic materials
         problematic = {}
 
+        # Debug output
+        print(f"Precomputing indices for {len(material_ids)} unique materials")
+        print(f"Wavelength range: {min(wavelengths)}-{max(wavelengths)} nm")
+
         # Precompute all indices
         for material_id in material_ids:
             try:
+                # Split the material ID
+                parts = material_id.split('|')
+                if len(parts) != 3:
+                    print(f"Skipping invalid material ID: {material_id}")
+                    problematic[material_id] = (0, 0)
+                    continue
+
+                shelf, book, page = parts
+
+                # Debug info
+                print(f"Precomputing for material {material_id}")
+
                 # Create the material object just once
-                shelf, book, page = material_id.split('|')
-                material_obj = RefractiveIndexMaterial(shelf=shelf, book=book, page=page)
+                try:
+                    material_obj = RefractiveIndexMaterial(shelf=shelf, book=book, page=page)
+                except Exception as e:
+                    print(f"Could not create RefractiveIndexMaterial for {material_id}: {e}")
+                    problematic[material_id] = (0, 0)
+                    continue
 
-                # Get the valid wavelength range
-                range_min = material_obj.material.refractiveIndex.rangeMin * 1000  # μm to nm
-                range_max = material_obj.material.refractiveIndex.rangeMax * 1000  # μm to nm
+                # Get the valid wavelength range (in μm)
+                range_min_um = material_obj.material.refractiveIndex.rangeMin
+                range_max_um = material_obj.material.refractiveIndex.rangeMax
 
-                # Check if wavelengths are within range
-                if self.np.min(wavelengths) < range_min or self.np.max(wavelengths) > range_max:
-                    problematic[material_id] = (range_min, range_max)
+                # Convert to nm for comparison
+                range_min_nm = range_min_um * 1000
+                range_max_nm = range_max_um * 1000
+                print(f"Material {material_id} range: {range_min_nm}-{range_max_nm} nm")
 
-                # Still try to compute for all wavelengths in range
+                # Check if wavelengths are outside data range
+                calc_min = self.np.min(wavelengths)
+                calc_max = self.np.max(wavelengths)
+                if calc_min < range_min_nm or calc_max > range_max_nm:
+                    problematic[material_id] = (range_min_nm, range_max_nm)
+                    print(f"Material {material_id} has incomplete wavelength coverage")
+                    print(f"  Material range: {range_min_nm}-{range_max_nm} nm")
+                    print(f"  Calculation range: {calc_min}-{calc_max} nm")
+                    print(f"  Will use boundary values for out-of-range wavelengths")
+
+                # Compute for all wavelengths, using boundary values for out-of-range ones
+                computed_count = 0
+                boundary_count = 0
                 for wavelength in wavelengths:
-                    if range_min <= wavelength <= range_max:
+                    try:
+                        # Determine which wavelength value to use (in nm)
+                        if wavelength < range_min_nm:
+                            actual_wavelength_nm = range_min_nm
+                            boundary_type = "minimum"
+                        elif wavelength > range_max_nm:
+                            actual_wavelength_nm = range_max_nm
+                            boundary_type = "maximum"
+                        else:
+                            actual_wavelength_nm = wavelength
+                            boundary_type = None
+
+                        # Convert to μm for the API
+                        actual_wavelength_um = actual_wavelength_nm / 1000
+
+                        # Get refractive index with explicit bounds_error=False
                         try:
-                            # Get refractive index
-                            n = material_obj.get_refractive_index(wavelength)
-
-                            # Try to get extinction coefficient if available
+                            n = material_obj.get_refractive_index(actual_wavelength_um, bounds_error=False)
+                        except Exception as e:
+                            # Try direct API access if the helper method fails
                             try:
-                                k = material_obj.get_extinction_coefficient(wavelength)
-                                if k > 0:
-                                    n = complex(n, k)
+                                n = material_obj.material.refractiveIndex.getRefractiveIndex(
+                                    actual_wavelength_um, bounds_error=False)
                             except:
-                                pass
+                                raise e
 
-                            # Cache the result
-                            cache_key = f"{material_id}_{wavelength}"
-                            self.material_cache[cache_key] = n
+                        # Try to get extinction coefficient if available
+                        try:
+                            k = material_obj.get_extinction_coefficient(actual_wavelength_um, bounds_error=False)
+                            if k > 0:
+                                n = complex(n, k)
                         except:
-                            # Skip wavelengths that fail
                             pass
+
+                        # Cache the result
+                        cache_key = f"{material_id}_{wavelength}"
+                        self.material_cache[cache_key] = n
+                        computed_count += 1
+
+                        # Print info about boundary values
+                        if boundary_type:
+                            boundary_count += 1
+                            if boundary_count <= 2:  # Only print first few to avoid spamming
+                                print(f"  Using {boundary_type} value n={n} for wavelength {wavelength} nm")
+
+                    except Exception as e:
+                        # Skip wavelengths that fail
+                        print(f"Failed to compute index for {material_id} at {wavelength} nm: {e}")
+                        traceback.print_exc()
+
+                print(f"Precomputed {computed_count} values for {material_id} ({boundary_count} boundary values)")
 
             except Exception as e:
                 # Record error but continue with other materials
                 print(f"Error precomputing indices for {material_id}: {e}")
+                traceback.print_exc()
+                problematic[material_id] = (0, 0)
 
         return problematic
 
@@ -452,6 +719,12 @@ class TMM_Calculator:
         R, problematic: Arrays of reflection coefficients and dict of problematic materials
         """
         import numpy as np
+
+        # Debug output at the start
+        print(f"Calculating reflection for {len(stack)} layers, {len(wavelengths)} wavelengths")
+        print(f"Stack:")
+        for i, (material, thickness) in enumerate(stack):
+            print(f"  Layer {i}: Material: {material}, Thickness: {thickness} nm")
 
         # Precompute all material indices to avoid repeated material object creation
         problematic = self.precompute_indices(stack, wavelengths)
@@ -472,8 +745,18 @@ class TMM_Calculator:
                 indices.append(n)
                 thicknesses.append(thickness)
 
+            # Debug output for each wavelength
+            if i == 0 or i == len(wavelengths) - 1 or i == len(wavelengths) // 2:
+                print(f"Wavelength {wavelength} nm:")
+                for j, (n, d) in enumerate(zip(indices, thicknesses)):
+                    print(f"  Layer {j}: n = {n}, d = {d} nm")
+
             # Calculate reflection using our custom TMM implementation
             r, t = self._calculate_tmm_matrices(indices, thicknesses, wavelength, angle)
+
+            # Debug output for reflection coefficient
+            if i == 0 or i == len(wavelengths) - 1 or i == len(wavelengths) // 2:
+                print(f"  r = {r}, |r|² = {np.abs(r) ** 2}")
 
             # Calculate reflection coefficient |r|²
             R[i] = np.abs(r) ** 2
@@ -490,6 +773,13 @@ class TMM_Calculator:
             if show_progress is not None and i % 10 == 0:
                 progress = int((i + 1) / len(wavelengths) * 100)
                 show_progress(progress)
+
+        # Debug output at the end
+        min_R = np.min(R)
+        max_R = np.max(R)
+        print(f"Completed calculation: min R = {min_R}, max R = {max_R}")
+        if min_R == max_R:
+            print("WARNING: All reflection values are identical!")
 
         return R, problematic
 
@@ -591,109 +881,6 @@ class TMM_Calculator:
         t = 1 / M[0, 0]  # Transmission coefficient
 
         return r, t
-
-    def get_refractive_index(self, material_id, wavelength):
-        """
-        Get refractive index with caching and handling for direct numeric values
-        """
-        # If it's a direct numerical value or a complex number, return it directly
-        if not isinstance(material_id, str):
-            return material_id
-
-        # Check if we have already computed this value
-        cache_key = f"{material_id}_{wavelength}"
-        if cache_key in self.material_cache:
-            return self.material_cache[cache_key]
-
-        # Check if it's a file path (for browsed materials)
-        if material_id.endswith('.yml'):
-            try:
-                # Load YAML file
-                with open(material_id, 'r') as file:
-                    material_data = yaml.safe_load(file)
-
-                # Get the data
-                data_list = material_data.get('DATA', [])
-                for data_item in data_list:
-                    if data_item.get('type') == 'tabulated nk':
-                        # Parse tabulated n,k data
-                        data_str = data_item.get('data', '')
-                        if data_str:
-                            lines = data_str.strip().split('\n')
-                            wavelengths = []
-                            n_values = []
-                            k_values = []
-
-                            for line in lines:
-                                parts = line.strip().split()
-                                if len(parts) >= 3:
-                                    try:
-                                        wl = float(parts[0]) * 1000  # Convert μm to nm
-                                        n = float(parts[1])
-                                        k = float(parts[2])
-                                        wavelengths.append(wl)
-                                        n_values.append(n)
-                                        k_values.append(k)
-                                    except (ValueError, IndexError):
-                                        continue
-
-                            # Simple linear interpolation for the requested wavelength
-                            if wavelengths:
-                                import numpy as np
-                                wavelength_nm = wavelength
-
-                                # Check if within range
-                                if wavelength_nm < min(wavelengths) or wavelength_nm > max(wavelengths):
-                                    # Out of range, use closest value
-                                    idx = np.argmin(np.abs(np.array(wavelengths) - wavelength_nm))
-                                    n = n_values[idx]
-                                    k = k_values[idx]
-                                else:
-                                    # Interpolate
-                                    n = np.interp(wavelength_nm, wavelengths, n_values)
-                                    k = np.interp(wavelength_nm, wavelengths, k_values)
-
-                                # Create complex index if k > 0
-                                result = complex(n, k) if k > 0 else n
-
-                                # Cache and return
-                                self.material_cache[cache_key] = result
-                                return result
-
-                # If we couldn't find or parse the data, use a default
-                self.material_cache[cache_key] = 1.5
-                return 1.5
-
-            except Exception as e:
-                print(f"Error loading material from file {material_id}: {e}")
-                self.material_cache[cache_key] = 1.5
-                return 1.5
-
-        # Otherwise, try to compute using the original method
-        try:
-            from refractiveindex import RefractiveIndexMaterial
-            shelf, book, page = material_id.split('|')
-            material_obj = RefractiveIndexMaterial(shelf=shelf, book=book, page=page)
-
-            # Get refractive index
-            n = material_obj.get_refractive_index(wavelength)
-
-            # Try to get extinction coefficient if available
-            try:
-                k = material_obj.get_extinction_coefficient(wavelength)
-                if k > 0:
-                    n = complex(n, k)
-            except:
-                pass
-
-            # Cache the result
-            self.material_cache[cache_key] = n
-            return n
-
-        except Exception as e:
-            # Store the error in cache to avoid repeated attempts
-            self.material_cache[cache_key] = 1.0
-            return 1.0  # Default to air
 
 
 class CustomMaterialDialog(QDialog):
@@ -1340,15 +1527,43 @@ class OpticalFilterApp(QMainWindow):
             # Show progress message
             self.statusBar().showMessage("Updating materials database...")
 
-            # Force re-download
-            if os.path.exists(self.material_api.db_cache_path):
-                os.remove(self.material_api.db_cache_path)
+            try:
+                # Force re-download by removing cache
+                if os.path.exists(self.material_api.db_cache_path):
+                    os.remove(self.material_api.db_cache_path)
+                    print(f"Removed existing database cache: {self.material_api.db_cache_path}")
 
-            self.material_api._download_and_cache_database()
+                # Clear material cache in memory
+                self.material_api.material_cache = {}
 
-            # Refresh material search
-            self.search_materials()
-            self.statusBar().showMessage("Materials database updated successfully!", 3000)
+                # Clear material cache file
+                if os.path.exists(self.material_api.material_cache_path):
+                    os.remove(self.material_api.material_cache_path)
+                    print(f"Removed material cache: {self.material_api.material_cache_path}")
+
+                self.material_api.initialized = False
+
+                # Download the database again
+                self.material_api._download_database()
+
+                # Verify the database was downloaded
+                if hasattr(self.material_api.database, 'catalog') and self.material_api.database.catalog:
+                    material_count = sum(1 for shelf in self.material_api.database.catalog if 'SHELF' in shelf)
+                    print(f"Refreshed database with {material_count} material shelves")
+
+                    # Refresh material search
+                    self.search_materials()
+                    self.statusBar().showMessage(
+                        f"Materials database updated successfully! {material_count} shelves available.", 3000)
+                else:
+                    raise ValueError("Database refresh did not provide valid data")
+
+            except Exception as e:
+                error_msg = f"Error refreshing database: {str(e)}"
+                print(error_msg)
+                self.statusBar().showMessage("Error updating materials database, see console for details", 3000)
+                QMessageBox.warning(self, "Database Update Failed",
+                                    "Failed to update the materials database. Please check your internet connection.\n\n" + error_msg)
 
     def browse_material(self):
         """Open a file dialog to browse for a material file"""
