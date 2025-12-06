@@ -1,22 +1,16 @@
 """
 Run script for the refactored optical filter designer.
-This script adds the src directory to the Python path and runs the application.
+This script runs the application.
 """
 
 import sys
-import os
+from PyQt5.QtWidgets import QApplication
+from src.main import OpticalFilterApp
 
-# Add the src directory to Python path
-current_dir = os.path.dirname(os.path.abspath(__file__))
-src_dir = os.path.join(current_dir, 'src')
-sys.path.insert(0, src_dir)
 
 # Run the application
 if __name__ == "__main__":
     try:
-        from main import OpticalFilterApp
-        from PyQt5.QtWidgets import QApplication
-
         app = QApplication(sys.argv)
         window = OpticalFilterApp()
         window.show()

@@ -5,13 +5,6 @@ import pickle
 import sys
 
 try:
-    import sys
-    import os
-    # Add PyTMM to path
-    pytmm_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'PyTMM-1.0.3')
-    if os.path.exists(pytmm_path) and pytmm_path not in sys.path:
-        sys.path.insert(0, pytmm_path)
-
     from PyTMM.refractiveIndex import *
     REFRACTIVE_INDEX_AVAILABLE = True
 except ImportError as e:
@@ -205,28 +198,24 @@ class MaterialSearchAPI:
             shelf, book, page = material_id.split('|')
             material = self.ri_instance.getMaterial(shelf, book, page)
 
-            # Convert wavelength from nm to µm for PyTMM
-            wavelength_um = wavelength / 1000.0
 
             try:
                 range_min = material.refractiveIndex.rangeMin * 1000  # µm to nm
                 range_max = material.refractiveIndex.rangeMax * 1000  # µm to nm
             except AttributeError:
-                n = material.getRefractiveIndex(wavelength_um)
+                n = material.getRefractiveIndex(wavelength)
                 self.material_cache[cache_key] = n
                 return n
 
-            actual_wavelength_um = wavelength_um
-
             if wavelength < range_min:
-                actual_wavelength_um = material.refractiveIndex.rangeMin
+                wavelength = material.refractiveIndex.rangeMin
             elif wavelength > range_max:
-                actual_wavelength_um = material.refractiveIndex.rangeMax
+                wavelength = material.refractiveIndex.rangeMax
 
-            n = material.getRefractiveIndex(actual_wavelength_um)
+            n = material.getRefractiveIndex(wavelength)
 
             try:
-                k = material.getExtinctionCoefficient(actual_wavelength_um)
+                k = material.getExtinctionCoefficient(wavelength)
                 if k > 0:
                     n = complex(n, k)
             except:

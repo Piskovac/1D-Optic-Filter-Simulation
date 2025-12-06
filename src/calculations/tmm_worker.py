@@ -2,7 +2,7 @@
 
 import traceback
 from PyQt5.QtCore import QThread, pyqtSignal
-from calculations.tmm_calculator import TMM_Calculator
+from .tmm_calculator import TMM_Calculator
 
 
 class TMM_Worker(QThread):

@@ -35,11 +35,11 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 
 # Import our modular components
-from api.material_api import MaterialSearchAPI, MaterialHandler
-from calculations.tmm_worker import TMM_Worker
-from calculations.tmm_calculator import TMM_Calculator
-from ui.dialogs import CustomMaterialDialog, ThicknessEditDialog
-from ui.tables import MaterialTable, ArrayTable
+from .api.material_api import MaterialSearchAPI, MaterialHandler
+from .calculations.tmm_worker import TMM_Worker
+from .calculations.tmm_calculator import TMM_Calculator
+from .ui.dialogs import CustomMaterialDialog, ThicknessEditDialog
+from .ui.tables import MaterialTable, ArrayTable
 
 
 class FilterVisualizerWindow(QMainWindow):

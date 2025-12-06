@@ -4,13 +4,6 @@ import numpy as np
 import yaml
 
 try:
-    import sys
-    import os
-    # Add PyTMM to path
-    pytmm_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'PyTMM-1.0.3')
-    if os.path.exists(pytmm_path) and pytmm_path not in sys.path:
-        sys.path.insert(0, pytmm_path)
-
     from PyTMM.transferMatrix import *
     PYTMM_AVAILABLE = True
 except ImportError as e:

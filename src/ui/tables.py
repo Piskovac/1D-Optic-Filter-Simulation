@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
-from ui.dialogs import ThicknessEditDialog
+from .dialogs import ThicknessEditDialog
 
 
 class MaterialTable(QTableWidget):
