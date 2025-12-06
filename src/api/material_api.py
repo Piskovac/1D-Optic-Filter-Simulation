@@ -208,9 +208,9 @@ class MaterialSearchAPI:
                 return n
             
             if wavelength < range_min:
-                wavelength = material.refractiveIndex.rangeMin
+                wavelength = material.refractiveIndex.rangeMin * 1000
             elif wavelength > range_max:
-                wavelength = material.refractiveIndex.rangeMax
+                wavelength = material.refractiveIndex.rangeMax * 1000
 
             n = material.getRefractiveIndex(wavelength)
 
@@ -225,6 +225,7 @@ class MaterialSearchAPI:
             return n
 
         except Exception as e:
+            
             print(f"Warning: MaterialSearchAPI cannot process {material_id}: {e}")
             return 1.5
 

@@ -12,8 +12,19 @@ src_dir = os.path.join(current_dir, 'src')
 if src_dir not in sys.path:
     sys.path.insert(0, src_dir)
 
+# Import using importlib for better compatibility
+import importlib.util
 from PyQt5.QtWidgets import QApplication
-from main import OpticalFilterApp
+
+# Load main module directly
+main_path = os.path.join(src_dir, 'main.py')
+spec = importlib.util.spec_from_file_location("main", main_path)
+main_module = importlib.util.module_from_spec(spec)
+sys.modules["main"] = main_module
+spec.loader.exec_module(main_module)
+
+# Get the class
+OpticalFilterApp = main_module.OpticalFilterApp
 
 
 # Run the application
