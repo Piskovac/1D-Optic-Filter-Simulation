@@ -206,7 +206,7 @@ class MaterialSearchAPI:
                 n = material.getRefractiveIndex(wavelength)
                 self.material_cache[cache_key] = n
                 return n
-
+            
             if wavelength < range_min:
                 wavelength = material.refractiveIndex.rangeMin
             elif wavelength > range_max:

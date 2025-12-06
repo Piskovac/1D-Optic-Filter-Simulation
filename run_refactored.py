@@ -4,8 +4,16 @@ This script runs the application.
 """
 
 import sys
+import os
+
+# Add the src directory to Python path
+current_dir = os.path.dirname(os.path.abspath(__file__))
+src_dir = os.path.join(current_dir, 'src')
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
+
 from PyQt5.QtWidgets import QApplication
-from src.main import OpticalFilterApp
+from main import OpticalFilterApp
 
 
 # Run the application

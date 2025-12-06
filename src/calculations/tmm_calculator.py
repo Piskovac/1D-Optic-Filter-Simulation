@@ -91,7 +91,7 @@ class TMM_Calculator:
         try:
             # Check if we have a material_api instance cached
             if not hasattr(self, '_material_api'):
-                from ..api.material_api import MaterialSearchAPI
+                from api.material_api import MaterialSearchAPI
                 self._material_api = MaterialSearchAPI()
 
             if self._material_api.initialized:

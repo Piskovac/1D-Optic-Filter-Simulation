@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(cd:*)",
-      "Read(//mnt/c/Users/acer/Desktop/**)"
+      "Read(//mnt/c/Users/acer/Desktop/**)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
