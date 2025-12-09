@@ -368,12 +368,6 @@ class TabulatedRefractiveIndexData:
         :return: :raise Exception:
         """
         wavelength /= 1000.0
-
-        if self.rangeMin > 10.0:  # Wavelengths were probably given in nm, not um
-            self.rangeMin /= 1000.0
-            self.rangeMax /= 1000.0
-            wavelength *= 1000.0
-
         
         if self.rangeMin == self.rangeMax and self.rangeMin == wavelength:
             return self.refractiveFunction

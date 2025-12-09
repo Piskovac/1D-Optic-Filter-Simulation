@@ -992,17 +992,30 @@ class OpticalFilterApp(QMainWindow):
 
                         data_list = yml_data.get('DATA', [])
                         for data_item in data_list:
-                            if data_item.get('type', '').startswith('tabulated'):
+                            item_type = data_item.get('type', '')
+
+                            if item_type.startswith('tabulated'):
                                 data_str = data_item.get('data', '')
                                 if data_str:
                                     lines = data_str.strip().split('\n')
+                                    if not lines: continue
+
                                     wavelengths = []
+                                    unit_multiplier = 1.0  # Default to nm
+
+                                    # Determine unit multiplier from the first line, consistent with tmm_calculator
+                                    try:
+                                        first_wl_val = float(lines[0].strip().split()[0])
+                                        if first_wl_val < 20:
+                                            unit_multiplier = 1000.0  # Assume µm -> nm
+                                    except (ValueError, IndexError):
+                                        pass  # Stick with default multiplier
 
                                     for line in lines:
                                         parts = line.strip().split()
                                         if len(parts) >= 1:
                                             try:
-                                                wl = float(parts[0]) * 1000
+                                                wl = float(parts[0]) * unit_multiplier
                                                 wavelengths.append(wl)
                                             except (ValueError, IndexError):
                                                 continue
@@ -1010,9 +1023,27 @@ class OpticalFilterApp(QMainWindow):
                                     if wavelengths:
                                         min_range = min(wavelengths)
                                         max_range = max(wavelengths)
-
                                         if start_wavelength < min_range or end_wavelength > max_range:
                                             incompatible_materials.append((material_id, (min_range, max_range)))
+                                break  # Found tabulated data, stop
+
+                            elif item_type.startswith('formula'):
+                                wl_range_str = data_item.get('wavelength_range', '')
+                                if wl_range_str:
+                                    try:
+                                        min_wl_from_file, max_wl_from_file = [float(w) for w in wl_range_str.split()]
+
+                                        # Heuristic from tmm_calculator: if value > 20, it's likely nm.
+                                        # Otherwise, assume it's in µm and convert to nm.
+                                        min_range_nm = min_wl_from_file if min_wl_from_file > 20 else min_wl_from_file * 1000.0
+                                        max_range_nm = max_wl_from_file if max_wl_from_file > 20 else max_wl_from_file * 1000.0
+
+                                        if start_wavelength < min_range_nm or end_wavelength > max_range_nm:
+                                            incompatible_materials.append((material_id, (min_range_nm, max_range_nm)))
+                                        break  # Found formula with range, stop
+                                    except Exception as e:
+                                        print(f"Error parsing formula range for {material_id}: {e}")
+                                # If a formula has no range, we can't check it, so we break
                                 break
 
                     except Exception as e:

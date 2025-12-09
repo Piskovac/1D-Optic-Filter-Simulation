@@ -3,6 +3,8 @@
 import os
 import pickle
 import sys
+import numpy as np
+import yaml
 
 try:
     from PyTMM.refractiveIndex import *
@@ -167,9 +169,16 @@ class MaterialSearchAPI:
                 material = self.ri_instance.getMaterial(shelf, book, page)
 
                 if hasattr(material, 'refractiveIndex') and material.refractiveIndex:
-                    range_min = material.refractiveIndex.rangeMin * 1000
-                    range_max = material.refractiveIndex.rangeMax * 1000
-                    return (range_min, range_max)
+                    db_range_min_um = material.refractiveIndex.rangeMin
+                    db_range_max_um = material.refractiveIndex.rangeMax
+
+                    if db_range_min_um > 10: # Heuristic: if stored µm value is large, treat it as nm
+                        range_min_nm = db_range_min_um
+                        range_max_nm = db_range_max_um
+                    else: # Else, it's a true µm value, convert to nm
+                        range_min_nm = db_range_min_um * 1000
+                        range_max_nm = db_range_max_um * 1000
+                    return (range_min_nm, range_max_nm)
 
             return (0, 0)
 
@@ -198,19 +207,26 @@ class MaterialSearchAPI:
             shelf, book, page = material_id.split('|')
             material = self.ri_instance.getMaterial(shelf, book, page)
 
+            range_min = None
+            range_max = None   
 
             try:
-                range_min = material.refractiveIndex.rangeMin * 1000  # µm to nm
-                range_max = material.refractiveIndex.rangeMax * 1000  # µm to nm
+                if material.refractiveIndex.rangeMin > 10: #Stored as nm, convert to um
+                    range_min = material.refractiveIndex.rangeMin  # nm
+                    range_max = material.refractiveIndex.rangeMax
+                    wavelength *= 1000 # nm
+                else: 
+                   range_min = material.refractiveIndex.rangeMin * 1000  # µm to nm
+                   range_max = material.refractiveIndex.rangeMax * 1000  # µm to nm
             except AttributeError:
                 n = material.getRefractiveIndex(wavelength)
                 self.material_cache[cache_key] = n
                 return n
             
             if wavelength < range_min:
-                wavelength = material.refractiveIndex.rangeMin * 1000
+                wavelength = range_min
             elif wavelength > range_max:
-                wavelength = material.refractiveIndex.rangeMax * 1000
+                wavelength = range_max
 
             n = material.getRefractiveIndex(wavelength)
 
@@ -229,6 +245,8 @@ class MaterialSearchAPI:
             print(f"Warning: MaterialSearchAPI cannot process {material_id}: {e}")
             return 1.5
 
+            print(f"Warning: Cannot load YAML material {file_path}: {e}")
+            return 1.5
 
 class MaterialHandler:
     """Helper class to handle materials including selected database variants"""

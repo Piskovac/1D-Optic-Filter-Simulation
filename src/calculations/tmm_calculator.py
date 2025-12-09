@@ -40,11 +40,19 @@ class TMM_Calculator:
 
                 data_list = material_data.get('DATA', [])
                 for data_item in data_list:
+                    # --- Block for 'tabulated nk' ---
                     if data_item.get('type') == 'tabulated nk':
                         data_str = data_item.get('data', '')
                         if data_str:
                             lines = data_str.strip().split('\n')
-                            wavelengths = []
+                            if not lines: continue
+
+                            # Unit detection heuristic based on first wavelength value in table
+                            first_wl_val = float(lines[0].strip().split()[0])
+                            # if < 20, assume µm, so multiplier to get nm is 1000. Otherwise, assume nm, multiplier is 1.
+                            unit_multiplier = 1000.0 if first_wl_val < 20 else 1.0
+
+                            wavelengths_nm = []
                             n_values = []
                             k_values = []
 
@@ -52,34 +60,127 @@ class TMM_Calculator:
                                 parts = line.strip().split()
                                 if len(parts) >= 3:
                                     try:
-                                        wl = float(parts[0]) * 1000
+                                        wl_nm = float(parts[0]) * unit_multiplier
                                         n = float(parts[1])
                                         k = float(parts[2])
-                                        wavelengths.append(wl)
+                                        wavelengths_nm.append(wl_nm)
                                         n_values.append(n)
                                         k_values.append(k)
                                     except (ValueError, IndexError):
                                         continue
 
-                            if wavelengths:
-                                min_range = min(wavelengths)
-                                max_range = max(wavelengths)
+                            if wavelengths_nm:
+                                min_range_nm = min(wavelengths_nm)
+                                max_range_nm = max(wavelengths_nm)
 
-                                if wavelength < min_range:
+                                # Input wavelength is always in nm, so we compare directly with wavelengths_nm
+                                if wavelength < min_range_nm:
                                     n = n_values[0]
                                     k = k_values[0]
-                                    print(f"EXTRAPOLATION: YAML {material_id} at {wavelength}nm → using {min_range}nm value")
-                                elif wavelength > max_range:
+                                    print(f"EXTRAPOLATION: YAML {material_id} at {wavelength}nm → using {min_range_nm}nm value")
+                                elif wavelength > max_range_nm:
                                     n = n_values[-1]
                                     k = k_values[-1]
-                                    print(f"EXTRAPOLATION: YAML {material_id} at {wavelength}nm → using {max_range}nm value")
+                                    print(f"EXTRAPOLATION: YAML {material_id} at {wavelength}nm → using {max_range_nm}nm value")
                                 else:
-                                    n = np.interp(wavelength, wavelengths, n_values)
-                                    k = np.interp(wavelength, wavelengths, k_values)
+                                    n = np.interp(wavelength, wavelengths_nm, n_values)
+                                    k = np.interp(wavelength, wavelengths_nm, k_values)
 
                                 result = complex(n, k) if k > 0 else n
                                 self.material_cache[cache_key] = result
                                 return result
+                    
+                    # --- Block for FORMULAS ---
+                    formula_type = data_item.get('type')
+                    if formula_type and formula_type.startswith('formula'):
+                        coeffs_str = data_item.get('coefficients', '')
+                        coeffs = [float(c) for c in coeffs_str.split()]
+                        
+                        # All formulas on refractiveindex.info use wavelength in µm.
+                        wavelength_um = wavelength / 1000.0
+                        
+                        # Check wavelength range, applying unit heuristic to the range itself.
+                        wl_range_str = data_item.get('wavelength_range', '')
+                        if wl_range_str:
+                            min_wl_from_file, max_wl_from_file = [float(w) for w in wl_range_str.split()]
+                            
+                            # Heuristic: if range values are > 20, they are in nm. Convert to µm for comparison.
+                            min_wl_um = min_wl_from_file / 1000.0 if min_wl_from_file > 20 else min_wl_from_file
+                            max_wl_um = max_wl_from_file / 1000.0 if max_wl_from_file > 20 else max_wl_from_file
+
+                            if not (min_wl_um <= wavelength_um <= max_wl_um):
+                                print(f"Warning: Wavelength {wavelength_um:.3f}µm is outside the valid range [{min_wl_um}-{max_wl_um}]µm for {material_id}")
+
+                        # --- Specific formula implementations ---
+                        if formula_type == 'formula 1':
+                            n_squared = 1.0
+                            if len(coeffs) >= 7:
+                                n_squared += coeffs[1] * wavelength_um**2 / (wavelength_um**2 - coeffs[2]**2)
+                                n_squared += coeffs[3] * wavelength_um**2 / (wavelength_um**2 - coeffs[4]**2)
+                                n_squared += coeffs[5] * wavelength_um**2 / (wavelength_um**2 - coeffs[6]**2)
+                            n = np.sqrt(n_squared)
+                            self.material_cache[cache_key] = n
+                            return n
+                        elif formula_type == 'formula 2':
+                            n = 0.0
+                            if len(coeffs) > 0: n += coeffs[0]
+                            if len(coeffs) > 1: n += coeffs[1] / wavelength_um**2
+                            if len(coeffs) > 2: n += coeffs[2] / wavelength_um**4
+                            if len(coeffs) > 3: n += coeffs[3] / wavelength_um**6
+                            self.material_cache[cache_key] = n
+                            return n
+                        elif formula_type == 'formula 3':
+                            val = 0.0
+                            if len(coeffs) >= 5:
+                                wavelength_um_inv_sq = 1 / (wavelength_um**2)
+                                val += coeffs[0]
+                                val += coeffs[1] / (coeffs[2] - wavelength_um_inv_sq)
+                                val += coeffs[3] / (coeffs[4] - wavelength_um_inv_sq)
+                            n = 1.0 + val / 1e8
+                            self.material_cache[cache_key] = n
+                            return n
+                        elif formula_type == 'formula 4':
+                            g1 = lambda c1, c2, c3, c4, w: c1 * w**c2 / (w**2 - c3**c4)
+                            g2 = lambda c1, c2, w: c1 * w**c2
+                            nsq = coeffs[0] if len(coeffs) > 0 else 0.0
+                            for i in range(1, min(len(coeffs), 8), 4):
+                                if i + 3 < len(coeffs):
+                                    nsq += g1(coeffs[i], coeffs[i+1], coeffs[i+2], coeffs[i+3], wavelength_um)
+                            if len(coeffs) > 9:
+                                for i in range(9, len(coeffs), 2):
+                                    if i + 1 < len(coeffs):
+                                        nsq += g2(coeffs[i], coeffs[i+1], wavelength_um)
+                            n = np.sqrt(nsq)
+                            self.material_cache[cache_key] = n
+                            return n
+                        elif formula_type == 'formula 5':
+                            g = lambda c1, c2, w: c1 * w ** c2
+                            n = coeffs[0] if len(coeffs) > 0 else 0.0
+                            for i in range(1, len(coeffs), 2):
+                                if i + 1 < len(coeffs):
+                                    n += g(coeffs[i], coeffs[i + 1], wavelength_um)
+                            self.material_cache[cache_key] = n
+                            return n
+                        elif formula_type == 'formula 6':
+                            n = 1 + (coeffs[0] if len(coeffs) > 0 else 0.0)
+                            g = lambda c1, c2, w_um: c1 / (c2 - w_um ** (-2))
+                            for i in range(1, len(coeffs), 2):
+                                if i + 1 < len(coeffs):
+                                    n += g(coeffs[i], coeffs[i + 1], wavelength_um)
+                            self.material_cache[cache_key] = n
+                            return n
+                        elif formula_type == 'formula 7':
+                            g2 = lambda c1, w_um, p_val: c1 * w_um**p_val 
+                            n = coeffs[0] if len(coeffs) > 0 else 0.0
+                            for i in range(3, len(coeffs)):
+                                if i < len(coeffs):
+                                    n += g2(coeffs[i], wavelength_um, 2*(i-2))
+                            self.material_cache[cache_key] = n
+                            return n
+                        elif data_item.get('type') == 'formula 8':
+                            raise NotImplementedError(f'Retro formula for {material_id} not yet implemented for YAML')
+                        elif data_item.get('type') == 'formula 9':
+                            raise NotImplementedError(f'Exotic formula for {material_id} not yet implemented for YAML')
 
                 print(f"Warning: No optical data found in YAML file: {material_id}")
                 return 1.5  # Default fallback value
