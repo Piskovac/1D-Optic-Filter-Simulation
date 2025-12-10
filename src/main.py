@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMenu, QMenuBar, QMessageBox, QPushButton, QScrollArea,
     QSlider, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QWidget
+    QAbstractItemView, QWidget
 )
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -40,6 +40,146 @@ from calculations.tmm_worker import TMM_Worker
 from calculations.tmm_calculator import TMM_Calculator
 from ui.dialogs import CustomMaterialDialog, ThicknessEditDialog
 from ui.tables import MaterialTable, ArrayTable
+
+
+class DatabaseSearchWindow(QDialog):
+    """A dialog for searching and selecting materials from the refractiveindex.info database."""
+    def __init__(self, material_api, parent=None):
+        super().__init__(parent)
+        self.material_api = material_api
+        self.setWindowTitle("Search Material Database")
+        self.setGeometry(150, 150, 800, 600)
+        self.selected_material = None
+
+        # --- Main Layout ---
+        layout = QVBoxLayout(self)
+
+        # --- Search Bar ---
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Search for material (e.g., SiO2, Ag)...")
+        self.search_input.textChanged.connect(self.populate_materials_table)
+        layout.addWidget(self.search_input)
+
+        # --- Tables ---
+        splitter = QSplitter(Qt.Horizontal)
+
+        # Table 1: Materials (Books)
+        self.materials_table = QTableWidget()
+        self.materials_table.setColumnCount(1)
+        self.materials_table.setHorizontalHeaderLabels(["Material"])
+        self.materials_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.materials_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.materials_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.materials_table.itemSelectionChanged.connect(self.populate_pages_table)
+        splitter.addWidget(self.materials_table)
+
+        # Table 2: Pages (Measurement Data)
+        self.pages_table = QTableWidget()
+        self.pages_table.setColumnCount(1)
+        self.pages_table.setHorizontalHeaderLabels(["Measurement Data (Page)"])
+        self.pages_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.pages_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.pages_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.pages_table.itemSelectionChanged.connect(lambda: self.add_material_btn.setEnabled(True))
+        splitter.addWidget(self.pages_table)
+
+        splitter.setSizes([300, 500])
+        layout.addWidget(splitter)
+
+        # --- Action Buttons ---
+        button_layout = QHBoxLayout()
+        self.add_material_btn = QPushButton("Add Selected Material")
+        self.add_material_btn.setEnabled(False)  # Disabled until a page is selected
+        self.add_material_btn.clicked.connect(self.add_selected_material)
+        button_layout.addWidget(self.add_material_btn)
+
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.reject)
+        button_layout.addWidget(self.cancel_btn)
+        layout.addLayout(button_layout)
+
+        # --- Initial Population ---
+        self.populate_materials_table()
+
+    def populate_materials_table(self):
+        """Populate the first table with material 'books' based on the search query."""
+        self.materials_table.setRowCount(0)
+        self.pages_table.setRowCount(0)
+        self.add_material_btn.setEnabled(False)
+        query = self.search_input.text().lower()
+
+        if not self.material_api or not self.material_api.catalog:
+            return
+
+        # Build a list of unique books that match the query
+        matching_books = {}
+        for shelf in self.material_api.catalog:
+            shelf_id = shelf.get('SHELF', '')
+            if not shelf_id: continue
+
+            for book in shelf.get('content', []):
+                if 'DIVIDER' in book: continue
+                book_id = book.get('BOOK', '')
+                book_name = book.get('name', book_id)
+
+                if not query or (query in book_id.lower() or query in book_name.lower()):
+                    # Store shelf and book info to avoid searching again
+                    matching_books[book_name] = {'shelf_id': shelf_id, 'book_data': book}
+
+        self.materials_table.setSortingEnabled(False)
+        self.materials_table.setRowCount(len(matching_books))
+        for i, book_name in enumerate(sorted(matching_books.keys())):
+            cleaned_book_name = self.parent().clean_material_name(book_name) # Apply cleaning
+            item = QTableWidgetItem(cleaned_book_name)
+            # Store the data we need later to populate the pages table
+            item.setData(Qt.UserRole, matching_books[book_name])
+            self.materials_table.setItem(i, 0, item)
+        self.materials_table.setSortingEnabled(True)
+
+    def populate_pages_table(self):
+        """Populate the second table with 'pages' from the selected material 'book'."""
+        self.pages_table.setRowCount(0)
+        self.add_material_btn.setEnabled(False)
+        selected_items = self.materials_table.selectedItems()
+        if not selected_items:
+            return
+
+        item_data = selected_items[0].data(Qt.UserRole)
+        book_data = item_data['book_data']
+
+        pages = [p for p in book_data.get('content', []) if 'DIVIDER' not in p]
+        self.pages_table.setRowCount(len(pages))
+
+        for i, page in enumerate(pages):
+            page_name = page.get('name', page.get('PAGE', ''))
+            cleaned_page_name = self.parent().clean_material_name(page_name) # Apply cleaning
+            item = QTableWidgetItem(cleaned_page_name)
+            # Store the data needed to construct the full material ID
+            item.setData(Qt.UserRole, page)
+            self.pages_table.setItem(i, 0, item)
+
+    def add_selected_material(self):
+        """Stores the selected material data and closes the dialog."""
+        selected_material_items = self.materials_table.selectedItems()
+        selected_page_items = self.pages_table.selectedItems()
+
+        if not selected_material_items or not selected_page_items:
+            QMessageBox.warning(self, "No Selection", "Please select a material and a measurement data file.")
+            return
+
+        material_data = selected_material_items[0].data(Qt.UserRole)
+        page_data = selected_page_items[0].data(Qt.UserRole)
+
+        shelf_id = material_data['shelf_id']
+        book_id = material_data['book_data'].get('BOOK', '')
+        page_id = page_data.get('PAGE', '')
+        
+        full_material_id = f"{shelf_id}|{book_id}|{page_id}"
+        raw_display_name = f"{book_id} - {page_data.get('name', page_id)}"
+        cleaned_display_name = self.parent().clean_material_name(raw_display_name) # Apply cleaning
+
+        self.selected_material = (cleaned_display_name, full_material_id)
+        self.accept()
 
 
 class FilterVisualizerWindow(QMainWindow):
@@ -292,50 +432,42 @@ class OpticalFilterApp(QMainWindow):
 
         self.visualization_window = FilterVisualizerWindow(self.material_table, self.array_table, self)
 
+    def open_database_search_window(self):
+        """Opens the new material database search window and adds the selected material."""
+        if not self.material_api or not self.material_api.initialized:
+            QMessageBox.warning(self, "Database Error", "Material database is not available.")
+            return
+            
+        dialog = DatabaseSearchWindow(self.material_api, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_material:
+            material_name, material_id = dialog.selected_material
+            label, ok = self.get_unique_label(f"Enter a unique 3-char ID for:\n{material_name}")
+            if ok and label:
+                self.material_table.add_material(label, material_name, material_id)
+                self.statusBar().showMessage(f"Added '{material_name}' as '{label}'.", 3000)
+
     def create_material_section(self, parent_layout):
         """Create the material definition section"""
         group_box = QGroupBox("Material Library")
         group_box.setMinimumWidth(300)
         layout = QVBoxLayout(group_box)
 
-        controls_layout = QHBoxLayout()
+        # Layout for adding materials from different sources
+        add_buttons_layout = QHBoxLayout()
 
-        self.search_field = QLineEdit()
-        self.search_field.setPlaceholderText("Search materials...")
-        self.search_field.textChanged.connect(self.search_materials)
-        controls_layout.addWidget(QLabel("Search:"))
-        controls_layout.addWidget(self.search_field)
+        self.add_from_db_btn = QPushButton("Add from Database...")
+        self.add_from_db_btn.clicked.connect(self.open_database_search_window)
+        add_buttons_layout.addWidget(self.add_from_db_btn)
 
-        self.material_dropdown = QComboBox()
-        self.material_dropdown.setMinimumWidth(200)
-        controls_layout.addWidget(self.material_dropdown)
-
-        self.label_entry = QLineEdit()
-        self.label_entry.setMaxLength(3)
-        self.label_entry.setMaximumWidth(50)
-        controls_layout.addWidget(QLabel("ID:"))
-        controls_layout.addWidget(self.label_entry)
-
-        self.defect_checkbox = QCheckBox("Defect")
-        controls_layout.addWidget(self.defect_checkbox)
-
-        self.add_material_btn = QPushButton("Add Material")
-        self.add_material_btn.clicked.connect(self.add_material)
-        controls_layout.addWidget(self.add_material_btn)
-
-        layout.addLayout(controls_layout)
-
-        extra_buttons_layout = QHBoxLayout()
-
-        self.browse_material_btn = QPushButton("Browse Material File...")
+        self.browse_material_btn = QPushButton("Browse File...")
         self.browse_material_btn.clicked.connect(self.browse_material_file)
-        extra_buttons_layout.addWidget(self.browse_material_btn)
+        add_buttons_layout.addWidget(self.browse_material_btn)
 
-        self.custom_material_btn = QPushButton("Add Custom Material...")
+        self.custom_material_btn = QPushButton("Add Custom...")
         self.custom_material_btn.clicked.connect(self.add_custom_material)
-        extra_buttons_layout.addWidget(self.custom_material_btn)
+        add_buttons_layout.addWidget(self.custom_material_btn)
 
-        layout.addLayout(extra_buttons_layout)
+        layout.addLayout(add_buttons_layout)
 
         self.material_table = MaterialTable()
         layout.addWidget(self.material_table)
