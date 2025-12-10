@@ -186,63 +186,65 @@ class MaterialSearchAPI:
             print(f"Error getting wavelength range for {material_id}: {e}")
             return (0, 0)
 
+
     def get_refractive_index(self, material_id, wavelength):
-        """Get refractive index using proper catalog API, with robust error handling."""
+        """Get refractive index using proper catalog API"""
         if not isinstance(material_id, str):
-            return material_id  # Return as-is if it's already a number (e.g., complex index)
+            return material_id
 
         cache_key = f"{material_id}_{wavelength}"
         if cache_key in self.material_cache:
             return self.material_cache[cache_key]
 
         if '|' not in material_id:
-            raise ValueError(f"Invalid material_id format for database lookup: '{material_id}' (must contain '|')")
+            print(f"Warning: Invalid material_id format: '{material_id}'")
+            return 1.5
 
         if not self.ri_instance:
-            raise ValueError(f"RefractiveIndex database instance is not available for material '{material_id}'")
+            print(f"Warning: RefractiveIndex instance not available for {material_id}")
+            return 1.5
 
         try:
             shelf, book, page = material_id.split('|')
             material = self.ri_instance.getMaterial(shelf, book, page)
 
-            # Convert incoming wavelength from nm to µm for all PyTMM library calls
-            wavelength_um = wavelength / 1000.0
+            range_min = None
+            range_max = None   
 
-            # Optional: Perform range check and issue a warning if out of bounds.
-            # This provides feedback without silently clamping or using potentially extrapolated values.
-            if hasattr(material, 'refractiveIndex') and material.refractiveIndex:
-                db_range_min_um = material.refractiveIndex.rangeMin
-                db_range_max_um = material.refractiveIndex.rangeMax
-                
-                # Use heuristic to get the material's valid range in nm for a user-friendly warning
-                if db_range_min_um > 10:
-                    range_min_nm = db_range_min_um
-                    range_max_nm = db_range_max_um
-                else:
-                    range_min_nm = db_range_min_um * 1000
-                    range_max_nm = db_range_max_um * 1000
-                
-                if not (range_min_nm <= wavelength <= range_max_nm):
-                    print(f"Warning: Wavelength {wavelength}nm is outside the material '{material_id}' valid range [{range_min_nm:.1f}-{range_max_nm:.1f}]nm.")
-
-            # Get refractive index using wavelength in µm
-            n = material.getRefractiveIndex(wavelength_um)
-
-            # Get extinction coefficient if available
             try:
-                k = material.getExtinctionCoefficient(wavelength_um)
+                if material.refractiveIndex.rangeMin > 10: #Stored as nm, convert to um
+                    range_min = material.refractiveIndex.rangeMin  # nm
+                    range_max = material.refractiveIndex.rangeMax
+                    wavelength *= 1000 # nm
+                else: 
+                   range_min = material.refractiveIndex.rangeMin * 1000  # µm to nm
+                   range_max = material.refractiveIndex.rangeMax * 1000  # µm to nm
+            except AttributeError:
+                n = material.getRefractiveIndex(wavelength)
+                self.material_cache[cache_key] = n
+                return n
+            
+            if wavelength < range_min:
+                wavelength = range_min
+            elif wavelength > range_max:
+                wavelength = range_max
+
+            n = material.getRefractiveIndex(wavelength)
+
+            try:
+                k = material.getExtinctionCoefficient(wavelength)
                 if k > 0:
                     n = complex(n, k)
-            except (AttributeError, ValueError):
-                # This material may not have an extinction coefficient, which is fine.
+            except:
                 pass
 
             self.material_cache[cache_key] = n
             return n
 
         except Exception as e:
-            # Re-raise as a ValueError to be caught by the worker thread
-            raise ValueError(f"Could not process database material '{material_id}'. Original error: {e}")
+            
+            print(f"Warning: MaterialSearchAPI cannot process {material_id}: {e}")
+            return 1.5
 
 class MaterialHandler:
     """Helper class to handle materials including selected database variants"""
