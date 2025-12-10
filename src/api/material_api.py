@@ -172,7 +172,7 @@ class MaterialSearchAPI:
                     db_range_min_um = material.refractiveIndex.rangeMin
                     db_range_max_um = material.refractiveIndex.rangeMax
 
-                    if db_range_min_um > 10: # Heuristic: if stored µm value is large, treat it as nm
+                    if db_range_min_um > 1: # Heuristic: if stored µm value is large, treat it as nm
                         range_min_nm = db_range_min_um
                         range_max_nm = db_range_max_um
                     else: # Else, it's a true µm value, convert to nm
@@ -212,7 +212,7 @@ class MaterialSearchAPI:
             range_max = None   
 
             try:
-                if material.refractiveIndex.rangeMin > 10: #Stored as nm, convert to um
+                if material.refractiveIndex.rangeMin > 10: 
                     range_min = material.refractiveIndex.rangeMin  # nm
                     range_max = material.refractiveIndex.rangeMax
                     wavelength *= 1000 # nm

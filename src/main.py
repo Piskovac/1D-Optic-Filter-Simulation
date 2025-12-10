@@ -441,9 +441,11 @@ class OpticalFilterApp(QMainWindow):
         dialog = DatabaseSearchWindow(self.material_api, self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_material:
             material_name, material_id = dialog.selected_material
-            label, ok = self.get_unique_label(f"Enter a unique 3-char ID for:\n{material_name}")
+            label, ok = self.get_unique_label(f"Enter a unique ID for:\n{material_name}")
             if ok and label:
                 self.material_table.add_material(label, material_name, material_id)
+                count = self.material_table.rowCount()
+                self.material_count_label.setText(f"Materials defined: {count}")
                 self.statusBar().showMessage(f"Added '{material_name}' as '{label}'.", 3000)
 
     def create_material_section(self, parent_layout):
@@ -472,7 +474,7 @@ class OpticalFilterApp(QMainWindow):
         self.material_table = MaterialTable()
         layout.addWidget(self.material_table)
 
-        self.material_count_label = QLabel("0/100 materials defined")
+        self.material_count_label = QLabel("Materials defined: 0")
         layout.addWidget(self.material_count_label)
 
         parent_layout.addWidget(group_box)
@@ -503,7 +505,7 @@ class OpticalFilterApp(QMainWindow):
         self.array_table = ArrayTable(self.material_table)
         layout.addWidget(self.array_table)
 
-        self.array_count_label = QLabel("0/20 arrays defined")
+        self.array_count_label = QLabel("Arrays defined: 0")
         layout.addWidget(self.array_count_label)
 
         parent_layout.addWidget(group_box)
@@ -833,6 +835,8 @@ class OpticalFilterApp(QMainWindow):
 
             material_id = complex(n, k) if k > 0 else n
             self.material_table.add_material(label, name, material_id, is_defect)
+            count = self.material_table.rowCount()
+            self.material_count_label.setText(f"Materials defined: {count}")
 
     def browse_material_file(self):
         """Browse for a material file"""
@@ -850,6 +854,8 @@ class OpticalFilterApp(QMainWindow):
 
                 if ok:
                     self.material_table.add_material(label, name, file_path)
+                    count = self.material_table.rowCount()
+                    self.material_count_label.setText(f"Materials defined: {count}")
 
             except Exception as e:
                 QMessageBox.critical(self, "File Error",
@@ -871,7 +877,7 @@ class OpticalFilterApp(QMainWindow):
         self.array_def_entry.clear()
 
         count = self.array_table.rowCount()
-        self.array_count_label.setText(f"{count}/20 arrays defined")
+        self.array_count_label.setText(f"Arrays defined: {count}")
 
     def add_material(self):
         """Add base material to the library without selecting a specific variant"""

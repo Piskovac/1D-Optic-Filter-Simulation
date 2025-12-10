@@ -25,8 +25,7 @@ class CustomMaterialDialog(QDialog):
         form.addRow("Material Name:", self.name_edit)
 
         self.id_edit = QLineEdit()
-        self.id_edit.setMaxLength(3)
-        form.addRow("Material ID (max 3 chars):", self.id_edit)
+        form.addRow("Material ID:", self.id_edit)
 
         self.n_spin = QDoubleSpinBox()
         self.n_spin.setRange(0.1, 10.0)
@@ -88,11 +87,7 @@ class CustomMaterialDialog(QDialog):
 
         id_text = self.id_edit.text().strip()
         if not id_text:
-            QMessageBox.warning(self, "Invalid Input", "Please enter a material ID (max 3 characters).")
-            return
-
-        if len(id_text) > 3:
-            QMessageBox.warning(self, "Invalid Input", "Material ID cannot exceed 3 characters.")
+            QMessageBox.warning(self, "Invalid Input", "Please enter a material ID.")
             return
 
         if not id_text.isalnum():
