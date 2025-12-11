@@ -141,91 +141,52 @@ class TMM_Calculator:
         return R, {}
 
     def _calculate_with_pytmm(self, stack, wavelength, angle):
-        """Calculate reflection using PyTMM library with correct boundary + propagation approach"""
+        """Calculate reflection using PyTMM library with correct matrix stack construction."""
         try:
-            if len(stack) == 0:
-                return 0.0
-
-            # Convert wavelength from nm to µm for PyTMM
-            wavelength_um = wavelength / 1000.0
-
-            # Convert angle to radians if needed
-            theta = np.radians(angle) if angle > 0 else 0
-
-            # Air as incident medium (n=1)
-            n_air = 1.0
-
-            # Filter out zero-thickness layers (interfaces only)
+            # Filter out non-physical, zero-thickness layers
             physical_layers = [(material, thickness) for material, thickness in stack if thickness > 0]
-
             if not physical_layers:
                 return 0.0
 
-            # Get first and last materials for boundaries
-            first_material, first_thickness = physical_layers[0]
-            last_material, last_thickness = physical_layers[-1]
+            # Convert UI units to calculation units
+            wavelength_um = wavelength / 1000.0  # nm to µm
+            theta = np.radians(angle) if angle > 0 else 0.0
 
-            n_first = self.get_refractive_index(first_material, wavelength)
-            n_last = self.get_refractive_index(last_material, wavelength)
+            # Initialize with air as the incident medium
+            n_previous = 1.0
+            matrix_list = []
 
-            # Single layer case
-            if len(physical_layers) == 1:
-                # Input boundary: Air → Material
-                input_boundary = TransferMatrix.boundingLayer(n_air, n_first, theta, Polarization.s)
+            # Iterate through all physical layers to build the matrix stack
+            for material, thickness in physical_layers:
+                n_current = self.get_refractive_index(material, wavelength)
+                thickness_um = thickness / 1000.0
 
-                # Propagation in material
-                thickness_um = first_thickness / 1000.0
-                propagation = TransferMatrix.propagationLayer(n_first, thickness_um, wavelength_um, theta, Polarization.s)
+                # 1. Add the interface matrix between the previous layer and the current one
+                interface_matrix = TransferMatrix.boundingLayer(n_previous, n_current, theta, Polarization.s)
+                matrix_list.append(interface_matrix)
 
-                # Output boundary: Material → Air (or substrate)
-                n_substrate = 1.0  # Air for now, could be configurable
-                output_boundary = TransferMatrix.boundingLayer(n_first, n_substrate, theta, Polarization.s)
+                # 2. Add the propagation matrix for the current layer
+                propagation_matrix = TransferMatrix.propagationLayer(n_current, thickness_um, wavelength_um, theta, Polarization.s)
+                matrix_list.append(propagation_matrix)
 
-                # Combine all
-                combined = TransferMatrix.structure(input_boundary, propagation, output_boundary)
+                # 3. Update n_previous for the next iteration
+                n_previous = n_current
 
-                R, T = solvePropagation(combined)
-                return np.abs(R)**2
+            # Add the final interface matrix between the last layer and the substrate (air)
+            n_substrate = 1.0
+            final_interface = TransferMatrix.boundingLayer(n_previous, n_substrate, theta, Polarization.s)
+            matrix_list.append(final_interface)
 
-            # Multilayer case
-            else:
-                # Create input boundary: Air → First Material
-                input_boundary = TransferMatrix.boundingLayer(n_air, n_first, theta, Polarization.s)
+            # Combine all matrices into the final transfer matrix for the structure
+            combined_matrix = TransferMatrix.structure(*matrix_list)
 
-                # Create unique propagation matrices for each distinct material
-                unique_materials = {}
-                propagation_matrices = []
+            # Solve for reflection and transmission
+            R, T = solvePropagation(combined_matrix)
 
-                for material, thickness in physical_layers:
-                    n = self.get_refractive_index(material, wavelength)
-                    thickness_um = thickness / 1000.0
-
-                    # Create cache key for this material
-                    n_str = f"{n.real:.6f}+{n.imag:.6f}j" if isinstance(n, complex) else f"{n:.6f}"
-                    material_key = f"{n_str}_{thickness}_{wavelength}_{theta}"
-
-                    # Check cache or create new propagation matrix
-                    if material_key in self.layer_cache:
-                        prop_matrix = self.layer_cache[material_key]
-                    else:
-                        prop_matrix = TransferMatrix.propagationLayer(n, thickness_um, wavelength_um, theta, Polarization.s)
-                        self.layer_cache[material_key] = prop_matrix
-
-                    propagation_matrices.append(prop_matrix)
-
-                # Create output boundary: Last Material → Air (or substrate)
-                n_substrate = 1.0  # Air for now, could be configurable
-                output_boundary = TransferMatrix.boundingLayer(n_last, n_substrate, theta, Polarization.s)
-
-                # Combine: Input boundary + All propagations + Output boundary
-                all_matrices = [input_boundary] + propagation_matrices + [output_boundary]
-                combined = TransferMatrix.structure(*all_matrices)
-
-                R, T = solvePropagation(combined)
-                return np.abs(R)**2
+            # Return the reflectance (intensity)
+            return np.abs(R)**2
 
         except Exception as e:
-            print(f"PyTMM calculation error: {e}")
-            # Fallback to simple calculation
-            return 0.1  # Default fallback value
+            # Re-raise the exception to be caught by the worker thread
+            raise e
 
