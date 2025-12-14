@@ -19,7 +19,7 @@
 
 import numpy
 import enum
-
+import scipy.linalg as la
 
 class Polarization(enum.Enum):
     s = 0
@@ -76,8 +76,8 @@ class TransferMatrix:
         # if numpy.abs((n1/n2)*numpy.sin(theta)) >= 1.0:
         #     theta2 = numpy.pi/2 * numpy.sign(numpy.sin(theta))
         # else:
-        theta2 = numpy.arcsin((n1/n2)*numpy.sin(theta), dtype=numpy.complex128)
-
+        #theta2 = numpy.arcsin((n1/n2)*numpy.sin(theta), dtype=numpy.complex128)
+        theta2 = numpy.emath.arcsin((n1/n2) * numpy.sin(theta)) # Modified to use emath for complex angles np.arcsin can return nan for >1 inputs
         # TE
         if pol is Polarization.s:
             _n1 = n1*numpy.cos(theta)
@@ -102,7 +102,8 @@ class TransferMatrix:
         :param d:
         :param wavelength:
         """
-        theta2 = numpy.arcsin((1/n)*numpy.sin(theta), dtype=numpy.complex128)
+        #theta2 = numpy.arcsin((1/n)*numpy.sin(theta), dtype=numpy.complex128)
+        theta2 = numpy.emath.arcsin((1/n) * numpy.sin(theta))# Modified to use emath for complex angles np.arcsin can return nan for >1 inputs
 
         propagation = numpy.array([[numpy.exp((-1j * n * d * 2 * numpy.pi / wavelength) * numpy.cos(theta2)), 0],
                                    [0, numpy.exp((1j * n * d * 2 * numpy.pi / wavelength) * numpy.cos(theta2))]],
@@ -140,14 +141,20 @@ def solvePropagation(transferMatrix, incidentField=1.0):
     :param incidentField:
     """
     # res[1] = transmittance, res[0] = reflectance
-    lhs = numpy.array([[transferMatrix.matrix[0, 1], -1],
-                       [transferMatrix.matrix[1, 1], 0]])
-    rhs = numpy.array([-transferMatrix.matrix[0, 0], -transferMatrix.matrix[1, 0]])
-    rhs = numpy.multiply(rhs, incidentField)
-    res = numpy.linalg.solve(lhs, rhs)
-    reflectance = res[0]
-    transmittance = res[1]
-    return reflectance, transmittance
+    M = transferMatrix.matrix.astype(numpy.complex128)
+    M00 = M[0,0]
+    M10 = M[1,0]
+
+    # guard: avoid division by zero
+    if M00 == 0:
+        raise ZeroDivisionError("M[0,0] is zero; cannot compute t = 1/M00")
+
+    # amplitudes (for right-incident wave with amplitude = incidentField)
+    t = (1.0 / M00) * incidentField
+    r = (M10 / M00) * incidentField
+
+    return complex(r), complex(t)
+
 
 
 def findReciprocalTransferMatrix(transmittance, reflectance, bottomMat=TransferMatrix(numpy.identity(2)),
