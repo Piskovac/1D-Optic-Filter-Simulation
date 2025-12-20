@@ -587,7 +587,7 @@ class OpticalFilterApp(QMainWindow):
         self.wavelength_start.setSuffix(" nm")
         self.wavelength_start.setDecimals(1)
         self.wavelength_start.setSingleStep(10.0)
-        self.wavelength_start.setKeyboardTracking(False)
+        self.wavelength_start.setKeyboardTracking(True)
 
         self.wavelength_end = QDoubleSpinBox()
         self.wavelength_end.setRange(100, 5000)
@@ -595,13 +595,13 @@ class OpticalFilterApp(QMainWindow):
         self.wavelength_end.setSuffix(" nm")
         self.wavelength_end.setDecimals(1)
         self.wavelength_end.setSingleStep(10.0)
-        self.wavelength_end.setKeyboardTracking(False)
+        self.wavelength_end.setKeyboardTracking(True)
 
         self.wavelength_steps = QSpinBox()
-        self.wavelength_steps.setRange(10, 2000)
+        self.wavelength_steps.setRange(1, 10000)
         self.wavelength_steps.setValue(100)
-        self.wavelength_steps.setSingleStep(10)
-        self.wavelength_steps.setKeyboardTracking(False)
+        self.wavelength_steps.setSingleStep(1)
+        self.wavelength_steps.setKeyboardTracking(True)
 
         wavelength_layout = QHBoxLayout()
         wavelength_layout.addWidget(self.wavelength_start)
@@ -618,7 +618,7 @@ class OpticalFilterApp(QMainWindow):
         self.incident_angle.setSuffix("°")
         self.incident_angle.setDecimals(1)
         self.incident_angle.setSingleStep(1.0)
-        self.incident_angle.setKeyboardTracking(False)
+        self.incident_angle.setKeyboardTracking(True)
         form_layout.addRow("Incident Angle:", self.incident_angle)
 
         # Default thickness UI removed as per request
@@ -1276,9 +1276,8 @@ class OpticalFilterApp(QMainWindow):
                     'filter_definition': self.filter_entry.text(),
                     'wavelength_start': self.wavelength_start.value(),
                     'wavelength_end': self.wavelength_end.value(),
-                    'wavelength_step': self.wavelength_step.value(),
-                    'default_thickness': self.default_thickness.value(),
-                    'angle': self.angle_input.value()
+                    'wavelength_step': self.wavelength_steps.value(),
+                    'angle': self.incident_angle.value()
                 }
 
                 # Serialize materials
@@ -1327,9 +1326,8 @@ class OpticalFilterApp(QMainWindow):
                 self.filter_entry.setText(project_data.get('filter_definition', ''))
                 self.wavelength_start.setValue(project_data.get('wavelength_start', 400))
                 self.wavelength_end.setValue(project_data.get('wavelength_end', 800))
-                self.wavelength_step.setValue(project_data.get('wavelength_step', 1))
-                self.default_thickness.setValue(project_data.get('default_thickness', 100))
-                self.angle_input.setValue(project_data.get('angle', 0))
+                self.wavelength_steps.setValue(project_data.get('wavelength_step', 100))
+                self.incident_angle.setValue(project_data.get('angle', 0))
 
                 QMessageBox.information(self, "Load Successful",
                                        f"Project loaded from {file_path}")
@@ -1353,13 +1351,15 @@ class OpticalFilterApp(QMainWindow):
                 import csv
                 with open(file_path, 'w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['Wavelength (nm)', 'Reflection (%)'])
+                    writer.writerow(['Wavelength (nm)', 'Reflection (dB)'])
 
                     wavelengths = self.last_calculation_data['wavelengths']
                     R_TM = self.last_calculation_data['R_TM']
 
+                    epsilon = 1e-10
                     for wl, r in zip(wavelengths, R_TM):
-                        writer.writerow([wl, r * 100])
+                        r_db = 10 * np.log10(r + epsilon)
+                        writer.writerow([wl, r_db])
 
                 QMessageBox.information(self, "Export Successful",
                                        f"Results exported to {file_path}")
