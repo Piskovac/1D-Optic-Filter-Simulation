@@ -307,34 +307,56 @@ class FilterVisualizer(QWidget):
         return expanded
 
     def expand_filter_for_calculation(self, filter_definition):
-        """Expand the filter definition for calculation - FULL expansion"""
+        """
+        Expand the filter definition for calculation - FULL expansion with metadata.
+        Returns a list of dicts: {'material': name, 'array_id': id, 'layer_index': idx}
+        """
         if not filter_definition:
             return []
 
         arrays = self.array_table.get_arrays()
+        
+        # 1. Expand (A)^5 notation to A*A*A*A*A
         pattern = r'\(([^)]+)\)\^(\d+)'
-
         while re.search(pattern, filter_definition):
             match = re.search(pattern, filter_definition)
             array_id = match.group(1)
             repetitions = int(match.group(2))
-
+            
+            # We don't change the string structure too much here, just expanded the groups
             replacement = "*".join([array_id] * repetitions)
             filter_definition = filter_definition[:match.start()] + replacement + filter_definition[match.end():]
 
+        # 2. Split by * to get components
         components = filter_definition.split("*")
-        expanded = []
+        expanded_structure = []
 
+        # 3. Process each component (either a material or an array)
         for component in components:
             component = component.strip()
-            if component in arrays:
-                array_def = arrays[component]
-                array_components = array_def.split("*")
-                expanded.extend(array_components)
-            else:
-                expanded.append(component)
+            if not component: 
+                continue
 
-        return expanded
+            if component in arrays:
+                # It's an array, expand it and attach metadata
+                array_def = arrays[component]
+                array_layers = array_def.split("*")
+                
+                for idx, layer_mat in enumerate(array_layers):
+                    expanded_structure.append({
+                        'material': layer_mat.strip(),
+                        'array_id': component,
+                        'layer_index': idx
+                    })
+            else:
+                # It's a standalone material
+                expanded_structure.append({
+                    'material': component,
+                    'array_id': None,
+                    'layer_index': None
+                })
+
+        return expanded_structure
 
 
 class TMM_Plots(QWidget):
@@ -599,14 +621,9 @@ class OpticalFilterApp(QMainWindow):
         self.incident_angle.setKeyboardTracking(False)
         form_layout.addRow("Incident Angle:", self.incident_angle)
 
-        self.default_thickness = QDoubleSpinBox()
-        self.default_thickness.setRange(1, 10000)
-        self.default_thickness.setValue(100)
-        self.default_thickness.setSuffix(" nm")
-        self.default_thickness.setDecimals(1)
-        self.default_thickness.setSingleStep(10.0)
-        self.default_thickness.setKeyboardTracking(False)
-        form_layout.addRow("Default Layer Thickness:", self.default_thickness)
+        # Default thickness UI removed as per request
+        # self.default_thickness = QDoubleSpinBox()
+        # ...
 
         params_layout.addLayout(form_layout)
 
@@ -934,11 +951,14 @@ class OpticalFilterApp(QMainWindow):
 
         try:
             # Basic validation - check if materials exist
-            expanded = self.visualization_window.filter_visualizer.expand_filter_for_calculation(filter_def)
+            # expand_filter_for_calculation now returns dicts, we need to extract materials
+            expanded_struct = self.visualization_window.filter_visualizer.expand_filter_for_calculation(filter_def)
+            expanded_layers = [item['material'] for item in expanded_struct]
+            
             materials = self.material_table.get_materials()
 
             missing = []
-            for layer in expanded:
+            for layer in expanded_layers:
                 if layer not in materials:
                     missing.append(layer)
 
@@ -998,79 +1018,59 @@ class OpticalFilterApp(QMainWindow):
             end_wavelength = self.wavelength_end.value()
             steps = self.wavelength_steps.value()
             angle = self.incident_angle.value()
-            default_thickness = self.default_thickness.value()
+            # Default thickness removed from UI, using constant as fallback
+            default_thickness_val = 100.0
 
             wavelengths = np.linspace(start_wavelength, end_wavelength, steps)
 
             # Expand filter and build stack
-            expanded_filter = self.visualization_window.filter_visualizer.expand_filter_for_calculation(filter_def)
+            # This now returns a list of dictionaries with metadata
+            expanded_filter_structure = self.visualization_window.filter_visualizer.expand_filter_for_calculation(filter_def)
+            
             materials_dict = self.material_table.get_materials()
             array_thicknesses = self.array_table.get_array_thicknesses()
 
             stack = [(1.0, 0)]  # Air
 
-            # Build array usage mapping
-            array_usage_map = {}
-            arrays = self.array_table.get_arrays()
-            current_expanded_index = 0
-
-            for component in filter_def.split():
-                if component in arrays:
-                    array_def = arrays[component]
-                    array_layers = array_def.split("*")
-                    for layer_pos, layer_name in enumerate(array_layers):
-                        if current_expanded_index not in array_usage_map:
-                            array_usage_map[current_expanded_index] = {
-                                'array_id': component,
-                                'layer_position': layer_pos,
-                                'material': layer_name.strip()
-                            }
-                        current_expanded_index += 1
-                else:
-                    if current_expanded_index not in array_usage_map:
-                        array_usage_map[current_expanded_index] = {
-                            'array_id': None,
-                            'layer_position': None,
-                            'material': component
-                        }
-                    current_expanded_index += 1
-
             # Build the stack with correct thickness mapping
-            for i, layer_material in enumerate(expanded_filter):
-                layer_material = layer_material.strip()
+            for layer_info in expanded_filter_structure:
+                layer_material = layer_info['material']
+                
+                # Skip unknown materials (or let it fail if critical)
+                if layer_material not in materials_dict:
+                     raise ValueError(f"Material {layer_material} not found in table")
 
-                if layer_material in materials_dict:
-                    _, material_data, is_defect = materials_dict[layer_material]
+                _, material_data, is_defect = materials_dict[layer_material]
 
-                    # Get thickness based on array mapping
-                    layer_thickness = default_thickness
+                # Determine thickness
+                layer_thickness = default_thickness_val
+                
+                # If this layer belongs to an array, try to find its custom thickness
+                if layer_info['array_id'] is not None:
+                    array_id = layer_info['array_id']
+                    layer_pos = layer_info['layer_index']
+                    
+                    # Thicknesses are stored as "layer_0", "layer_1", etc. for each array
+                    array_thickness_data = array_thicknesses.get(array_id, {})
+                    layer_key = f"layer_{layer_pos}"
+                    
+                    if layer_key in array_thickness_data:
+                        layer_thickness = array_thickness_data[layer_key]
 
-                    if i in array_usage_map:
-                        mapping = array_usage_map[i]
-                        array_id = mapping['array_id']
-                        layer_pos = mapping['layer_position']
-
-                        if array_id and layer_pos is not None:
-                            array_thickness_data = array_thicknesses.get(array_id, {})
-                            layer_key = f"layer_{layer_pos}"
-                            layer_thickness = array_thickness_data.get(layer_key, default_thickness)
-
-                    if isinstance(material_data, str) and material_data.startswith('{'):
-                        try:
-                            import json
-                            variants_data = json.loads(material_data)
-                            variants = variants_data.get("variants", [])
-                            if variants:
-                                first_variant = variants[0][0]
-                                stack.append((first_variant, layer_thickness))
-                            else:
-                                raise ValueError(f"No variants found for {layer_material}")
-                        except:
-                            raise ValueError(f"Material {layer_material} has invalid variant data")
-                    else:
-                        stack.append((material_data, layer_thickness))
+                if isinstance(material_data, str) and material_data.startswith('{'):
+                    try:
+                        import json
+                        variants_data = json.loads(material_data)
+                        variants = variants_data.get("variants", [])
+                        if variants:
+                            first_variant = variants[0][0]
+                            stack.append((first_variant, layer_thickness))
+                        else:
+                            raise ValueError(f"No variants found for {layer_material}")
+                    except:
+                        raise ValueError(f"Material {layer_material} has invalid variant data")
                 else:
-                    raise ValueError(f"Material {layer_material} not found in table")
+                    stack.append((material_data, layer_thickness))
 
             stack.append((3.5, 0))  # Silicon substrate
 
@@ -1109,8 +1109,10 @@ class OpticalFilterApp(QMainWindow):
         end_wavelength = self.wavelength_end.value()
 
         filter_def = self.filter_entry.text().strip()
-        expanded_filter = self.visualization_window.filter_visualizer.expand_filter_for_calculation(filter_def)
-        expanded_filter = [layer for layer in expanded_filter if layer != "..."]
+        expanded_struct = self.visualization_window.filter_visualizer.expand_filter_for_calculation(filter_def)
+        
+        # Extract just material names from the new structure
+        expanded_filter = [item['material'] for item in expanded_struct if item['material'] != "..."]
 
         materials_dict = self.material_table.get_materials()
         incompatible_materials = []
