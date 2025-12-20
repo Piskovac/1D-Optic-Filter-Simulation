@@ -135,6 +135,22 @@ class RefractiveIndex:
         """
         return Material(self.getMaterialFilename(shelf, book, page))
 
+    def get_material_metadata(self, shelf, book, page):
+        """Retrieve metadata (references, comments) for a specific material."""
+        filename = self.getMaterialFilename(shelf, book, page)
+        if not filename or not os.path.exists(filename):
+            return {'references': 'Material file not found.', 'comments': ''}
+            
+        try:
+            with open(filename, "rt", encoding="utf-8") as f:
+                material_data = yaml.load(f, Loader=BaseLoader)
+                return {
+                    'references': material_data.get('REFERENCES', ''),
+                    'comments': material_data.get('COMMENTS', '')
+                }
+        except Exception as e:
+            return {'references': f'Error loading metadata: {e}', 'comments': ''}
+
 
 class Material:
     """ Material class"""
@@ -149,6 +165,10 @@ class Material:
 
         with open(filename, "rt", encoding="utf-8") as f:
             material = yaml.load(f, Loader=BaseLoader)
+        
+        # Store metadata
+        self.references = material.get('REFERENCES', '')
+        self.comments = material.get('COMMENTS', '')
 
         for data in material['DATA']:
             if (data['type'].split())[0] == 'tabulated':

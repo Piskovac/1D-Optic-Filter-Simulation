@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMenu, QMenuBar, QMessageBox, QPushButton, QScrollArea,
     QSlider, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QAbstractItemView, QWidget
+    QAbstractItemView, QWidget, QTextBrowser
 )
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -48,7 +48,7 @@ class DatabaseSearchWindow(QDialog):
         super().__init__(parent)
         self.material_api = material_api
         self.setWindowTitle("Search Material Database")
-        self.setGeometry(150, 150, 800, 600)
+        self.setGeometry(150, 150, 1000, 600)  # Increased width for 3 panes
         self.selected_material = None
 
         # --- Main Layout ---
@@ -81,9 +81,16 @@ class DatabaseSearchWindow(QDialog):
         self.pages_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.pages_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.pages_table.itemSelectionChanged.connect(lambda: self.add_material_btn.setEnabled(True))
+        self.pages_table.itemSelectionChanged.connect(self.show_selected_metadata)
         splitter.addWidget(self.pages_table)
 
-        splitter.setSizes([300, 500])
+        # Pane 3: Metadata (References & Comments)
+        self.metadata_browser = QTextBrowser()
+        self.metadata_browser.setOpenExternalLinks(True)
+        self.metadata_browser.setPlaceholderText("Select a measurement data file to see details...")
+        splitter.addWidget(self.metadata_browser)
+
+        splitter.setSizes([250, 250, 400])
         layout.addWidget(splitter)
 
         # --- Action Buttons ---
@@ -101,10 +108,65 @@ class DatabaseSearchWindow(QDialog):
         # --- Initial Population ---
         self.populate_materials_table()
 
+    def show_selected_metadata(self):
+        """Display metadata for the selected page."""
+        selected_items = self.pages_table.selectedItems()
+        if not selected_items:
+            self.metadata_browser.clear()
+            return
+
+        # Get IDs to fetch metadata
+        # We need shelf, book, page
+        # Shelf and Book are stored in materials_table item, Page in pages_table item
+        
+        page_item = selected_items[0]
+        page_data = page_item.data(Qt.UserRole)
+        
+        # We need to find the parent book item to get shelf and book ID
+        material_items = self.materials_table.selectedItems()
+        if not material_items: return
+        
+        material_data = material_items[0].data(Qt.UserRole)
+        
+        shelf_id = material_data['shelf_id']
+        book_id = material_data['book_data'].get('BOOK', '')
+        page_id = page_data.get('PAGE', '')
+        
+        full_id = f"{shelf_id}|{book_id}|{page_id}"
+        
+        # Fetch metadata via API
+        metadata = self.material_api.get_metadata(full_id)
+        
+        references = metadata.get('references', 'N/A')
+        comments = metadata.get('comments', 'N/A')
+        
+        # Format as HTML
+        html_content = """
+        <div style="font-family: monospace; color: #555; font-size: 10px; margin-bottom: 10px;">
+        # this file is part of refractiveindex.info database<br>
+        # refractiveindex.info database is in the public domain<br>
+        # copyright and related rights waived via CC0 1.0
+        </div>
+        """
+        
+        html_content += f"<h3>REFERENCES:</h3>"
+        if references:
+            # Preserve line breaks
+            ref_formatted = str(references).replace('\n', '<br>')
+            html_content += f"<div style='margin-left: 10px;'>{ref_formatted}</div>"
+        
+        html_content += f"<h3>COMMENTS:</h3>"
+        if comments:
+             comm_formatted = str(comments).replace('\n', '<br>')
+             html_content += f"<div style='margin-left: 10px;'>{comm_formatted}</div>"
+             
+        self.metadata_browser.setHtml(html_content)
+
     def populate_materials_table(self):
         """Populate the first table with material 'books' based on the search query."""
         self.materials_table.setRowCount(0)
         self.pages_table.setRowCount(0)
+        self.metadata_browser.clear()
         self.add_material_btn.setEnabled(False)
         query = self.search_input.text().lower()
 

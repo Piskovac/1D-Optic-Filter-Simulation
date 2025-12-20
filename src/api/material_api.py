@@ -154,37 +154,79 @@ class MaterialSearchAPI:
         return None, None, None
 
     def get_wavelength_range(self, material_id):
-        """Get the valid wavelength range for a material"""
-        if not material_id or not self.initialized or not self.catalog:
-            return (0, 0)
-
+        """
+        Get the valid wavelength range for a material.
+        Returns (min_wl, max_wl) in nm.
+        """
+        if not self.initialized:
+            return 0, 0
+            
         try:
-            shelf, book, page = self.get_material_details(material_id)
-            print(f"DEBUG: material_id={material_id}, shelf={shelf}, book={book}, page={page}")
+            shelf, book, page = material_id.split('|')
+            material = self.ri_instance.getMaterial(shelf, book, page)
+            
+            if material and material.refractiveIndex:
+                # Convert to nm
+                min_wl = material.refractiveIndex.rangeMin * 1000
+                max_wl = material.refractiveIndex.rangeMax * 1000
+                return min_wl, max_wl
+                
+        except Exception as e:
+            print(f"Error getting range for {material_id}: {e}")
+            
+        return 0, 0
 
-            if shelf and book and page and self.ri_instance:
-                # Debug catalog structure
-                print(f"DEBUG: catalog first item keys: {list(self.catalog[0].keys()) if self.catalog else 'None'}")
-
+    def get_refractive_index(self, material_id, wavelength):
+        """
+        Get the complex refractive index (n + ik) for a material at a given wavelength (nm).
+        """
+        if not self.initialized:
+            return 1.0 + 0j
+            
+        try:
+            # Check cache first
+            if material_id in self.material_cache:
+                material = self.material_cache[material_id]
+            else:
+                shelf, book, page = material_id.split('|')
                 material = self.ri_instance.getMaterial(shelf, book, page)
+                if material:
+                    self.material_cache[material_id] = material
+                else:
+                    return 1.0 + 0j
 
-                if hasattr(material, 'refractiveIndex') and material.refractiveIndex:
-                    db_range_min_um = material.refractiveIndex.rangeMin
-                    db_range_max_um = material.refractiveIndex.rangeMax
+            # Convert nm to um (PyTMM expects um)
+            wl_um = wavelength / 1000.0
 
-                    if db_range_min_um > 1: # Heuristic: if stored µm value is large, treat it as nm
-                        range_min_nm = db_range_min_um
-                        range_max_nm = db_range_max_um
-                    else: # Else, it's a true µm value, convert to nm
-                        range_min_nm = db_range_min_um * 1000
-                        range_max_nm = db_range_max_um * 1000
-                    return (range_min_nm, range_max_nm)
+            try:
+                n = material.getRefractiveIndex(wl_um)
+            except:
+                n = 1.0 # Default fallback if out of range or error
 
-            return (0, 0)
+            try:
+                k = material.getExtinctionCoefficient(wl_um)
+            except:
+                k = 0.0 # Often materials don't have k data
+
+            return complex(n, k)
 
         except Exception as e:
-            print(f"Error getting wavelength range for {material_id}: {e}")
-            return (0, 0)
+            # print(f"Error getting RI for {material_id} at {wavelength}nm: {e}")
+            return 1.0 + 0j
+
+    def get_metadata(self, material_id):
+        """
+        Get metadata (references, comments) for a material.
+        """
+        if not self.initialized:
+            return {}
+            
+        try:
+            shelf, book, page = material_id.split('|')
+            return self.ri_instance.get_material_metadata(shelf, book, page)
+        except Exception as e:
+            print(f"Error getting metadata for {material_id}: {e}")
+            return {}
 
 
     def get_refractive_index(self, material_id, wavelength):
