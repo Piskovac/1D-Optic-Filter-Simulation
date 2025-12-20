@@ -623,7 +623,7 @@ class OpticalFilterApp(QMainWindow):
             
         dialog = DatabaseSearchWindow(self.material_api, self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_material:
-            material_name, material_id = dialog.selected_material
+            material_name, material_id, _ = dialog.selected_material
             self.update_medium_selection(target, material_name, material_id)
 
     def select_medium_from_file(self, target):
