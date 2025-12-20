@@ -517,7 +517,7 @@ class OpticalFilterApp(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Optical Filter Designer v5 - Refactored")
+        self.setWindowTitle("1D Optical Filter TMM Simulator")
         self.setGeometry(100, 100, 1400, 900)
 
         # Initialize input/output mediums (Default: Air / Silicon)
@@ -1508,6 +1508,15 @@ class OpticalFilterApp(QMainWindow):
 
         if file_path:
             try:
+                # Serialize input and output mediums
+                # Helper tuple format: (name, id, is_defect) - is_defect is dummy here
+                input_med_serialized = MaterialHandler.serialize_material(
+                    (self.input_medium['name'], self.input_medium['id'], False)
+                )
+                output_med_serialized = MaterialHandler.serialize_material(
+                    (self.output_medium['name'], self.output_medium['id'], False)
+                )
+
                 project_data = {
                     'materials': {},
                     'arrays': self.array_table.get_arrays(),
@@ -1516,7 +1525,9 @@ class OpticalFilterApp(QMainWindow):
                     'wavelength_start': self.wavelength_start.value(),
                     'wavelength_end': self.wavelength_end.value(),
                     'wavelength_step': self.wavelength_steps.value(),
-                    'angle': self.incident_angle.value()
+                    'angle': self.incident_angle.value(),
+                    'input_medium': input_med_serialized,
+                    'output_medium': output_med_serialized
                 }
 
                 # Serialize materials
@@ -1567,6 +1578,21 @@ class OpticalFilterApp(QMainWindow):
                 self.wavelength_end.setValue(project_data.get('wavelength_end', 800))
                 self.wavelength_steps.setValue(project_data.get('wavelength_step', 100))
                 self.incident_angle.setValue(project_data.get('angle', 0))
+
+                # Load Input/Output Mediums
+                if 'input_medium' in project_data:
+                    in_name, in_id, _ = MaterialHandler.deserialize_material(project_data['input_medium'])
+                    self.update_medium_selection('input', in_name, in_id)
+                else:
+                    # Default fallback
+                    self.update_medium_selection('input', 'Air', 1.0)
+
+                if 'output_medium' in project_data:
+                    out_name, out_id, _ = MaterialHandler.deserialize_material(project_data['output_medium'])
+                    self.update_medium_selection('output', out_name, out_id)
+                else:
+                    # Default fallback
+                    self.update_medium_selection('output', 'Air', 1.0)
 
                 QMessageBox.information(self, "Load Successful",
                                        f"Project loaded from {file_path}")
