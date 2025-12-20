@@ -10,8 +10,9 @@ from PyQt5.QtCore import Qt
 class CustomMaterialDialog(QDialog):
     """Dialog for creating a custom material with refractive index values"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, hide_id=False):
         super().__init__(parent)
+        self.hide_id = hide_id
         self.setWindowTitle("Add Custom Material")
         self.setup_ui()
 
@@ -25,7 +26,8 @@ class CustomMaterialDialog(QDialog):
         form.addRow("Material Name:", self.name_edit)
 
         self.id_edit = QLineEdit()
-        form.addRow("Material ID:", self.id_edit)
+        if not self.hide_id:
+            form.addRow("Material ID:", self.id_edit)
 
         self.n_spin = QDoubleSpinBox()
         self.n_spin.setRange(0.1, 10.0)
@@ -57,8 +59,9 @@ class CustomMaterialDialog(QDialog):
 
         form.addRow("Quick Select:", suggestion_layout)
 
-        self.defect_checkbox = QCheckBox("Mark as defect material")
-        form.addRow("", self.defect_checkbox)
+        if not self.hide_id:
+            self.defect_checkbox = QCheckBox("Mark as defect material")
+            form.addRow("", self.defect_checkbox)
 
         layout.addLayout(form)
 
@@ -85,14 +88,15 @@ class CustomMaterialDialog(QDialog):
             QMessageBox.warning(self, "Invalid Input", "Please enter a material name.")
             return
 
-        id_text = self.id_edit.text().strip()
-        if not id_text:
-            QMessageBox.warning(self, "Invalid Input", "Please enter a material ID.")
-            return
+        if not self.hide_id:
+            id_text = self.id_edit.text().strip()
+            if not id_text:
+                QMessageBox.warning(self, "Invalid Input", "Please enter a material ID.")
+                return
 
-        if not id_text.isalnum():
-            QMessageBox.warning(self, "Invalid Input", "Material ID can only contain letters and numbers.")
-            return
+            if not id_text.isalnum():
+                QMessageBox.warning(self, "Invalid Input", "Material ID can only contain letters and numbers.")
+                return
 
         self.accept()
 

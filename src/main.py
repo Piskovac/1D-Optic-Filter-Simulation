@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMenu, QMenuBar, QMessageBox, QPushButton, QScrollArea,
     QSlider, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QAbstractItemView, QWidget, QTextBrowser
+    QAbstractItemView, QWidget, QTextBrowser, QGridLayout
 )
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -520,6 +520,10 @@ class OpticalFilterApp(QMainWindow):
         self.setWindowTitle("Optical Filter Designer v5 - Refactored")
         self.setGeometry(100, 100, 1400, 900)
 
+        # Initialize input/output mediums (Default: Air / Silicon)
+        self.input_medium = {'name': 'Air', 'id': 1.0}
+        self.output_medium = {'name': 'Air', 'id': 1.0}
+
         # Initialize components with error handling
         try:
             self.material_api = MaterialSearchAPI()
@@ -574,6 +578,83 @@ class OpticalFilterApp(QMainWindow):
                 count = self.material_table.rowCount()
                 self.material_count_label.setText(f"Materials defined: {count}")
                 self.statusBar().showMessage(f"Added '{material_name}' as '{label}'.", 3000)
+
+    def select_input_medium(self):
+        """Show menu to select input medium"""
+        self.show_medium_selection_menu('input')
+
+    def select_output_medium(self):
+        """Show menu to select output medium"""
+        self.show_medium_selection_menu('output')
+
+    def show_medium_selection_menu(self, target):
+        """Show a menu to select a medium from Database, File, or Custom"""
+        menu = QMenu(self)
+        
+        action_db = menu.addAction("From Database")
+        action_db.triggered.connect(lambda: self.select_medium_from_db(target))
+        
+        action_file = menu.addAction("Browse File")
+        action_file.triggered.connect(lambda: self.select_medium_from_file(target))
+        
+        action_custom = menu.addAction("Custom Constant")
+        action_custom.triggered.connect(lambda: self.select_medium_custom(target))
+        
+        # Show menu at button position
+        if target == 'input':
+            btn = self.select_input_btn
+        else:
+            btn = self.select_output_btn
+        menu.exec_(btn.mapToGlobal(QPoint(0, btn.height())))
+
+    def select_medium_from_db(self, target):
+        """Select a medium from the database"""
+        if not self.material_api or not self.material_api.initialized:
+            QMessageBox.warning(self, "Database Error", "Material database is not available.")
+            return
+            
+        dialog = DatabaseSearchWindow(self.material_api, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.selected_material:
+            material_name, material_id = dialog.selected_material
+            self.update_medium_selection(target, material_name, material_id)
+
+    def select_medium_from_file(self, target):
+        """Select a medium from a YAML file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Material File", "", "YAML files (*.yml)")
+
+        if file_path:
+            try:
+                # Validate the file
+                with open(file_path, 'r') as f:
+                    yaml.safe_load(f)
+
+                name = os.path.basename(file_path)
+                self.update_medium_selection(target, name, file_path)
+
+            except Exception as e:
+                QMessageBox.critical(self, "File Error", f"Invalid material file: {str(e)}")
+
+    def select_medium_custom(self, target):
+        """Create a custom constant refractive index medium"""
+        # Pass hide_id=True to hide the ID/Label field
+        dialog = CustomMaterialDialog(self, hide_id=True)
+        if dialog.exec_() == QDialog.Accepted:
+            name = dialog.name_edit.text().strip()
+            n = dialog.n_spin.value()
+            k = dialog.k_spin.value()
+            
+            material_id = complex(n, k) if k > 0 else n
+            self.update_medium_selection(target, name, material_id)
+
+    def update_medium_selection(self, target, name, material_id):
+        """Update the selected medium and UI label"""
+        if target == 'input':
+            self.input_medium = {'name': name, 'id': material_id}
+            self.input_medium_label.setText(name)
+        elif target == 'output':
+            self.output_medium = {'name': name, 'id': material_id}
+            self.output_medium_label.setText(name)
 
     def create_material_section(self, parent_layout):
         """Create the material definition section"""
@@ -638,37 +719,62 @@ class OpticalFilterApp(QMainWindow):
         parent_layout.addWidget(group_box)
 
     def create_filter_section(self, parent_layout):
-        """Create the optical filter definition section"""
+        """Create the optical filter definition section with input/output medium selection"""
         group_box = QGroupBox("Optical Filter Structure")
         group_box.setMinimumWidth(300)
-        layout = QVBoxLayout(group_box)
+        
+        # Use Grid Layout for cleaner structure
+        layout = QGridLayout(group_box)
+        layout.setColumnStretch(1, 1)  # Stretch middle column
 
-        controls_layout = QHBoxLayout()
+        # --- Row 0: Input Medium ---
+        layout.addWidget(QLabel("Input Medium (Entrance):"), 0, 0)
+        
+        self.input_medium_label = QLabel(self.input_medium['name'])
+        self.input_medium_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        layout.addWidget(self.input_medium_label, 0, 1)
+        
+        self.select_input_btn = QPushButton("Select...")
+        self.select_input_btn.clicked.connect(self.select_input_medium)
+        layout.addWidget(self.select_input_btn, 0, 2)
 
+        # --- Row 1: Filter Definition ---
+        layout.addWidget(QLabel("Filter Structure:"), 1, 0)
+        
         self.filter_entry = QLineEdit()
         self.filter_entry.setPlaceholderText("Example: [(M1)^5*D*(M2)^3*B]")
-        controls_layout.addWidget(QLabel("Filter:"))
-        controls_layout.addWidget(self.filter_entry, 1)
+        layout.addWidget(self.filter_entry, 1, 1)
 
         self.validate_filter_btn = QPushButton("Validate")
         self.validate_filter_btn.clicked.connect(self.validate_filter)
-        controls_layout.addWidget(self.validate_filter_btn)
+        layout.addWidget(self.validate_filter_btn, 1, 2)
 
-        layout.addLayout(controls_layout)
+        # --- Row 2: Output Medium ---
+        layout.addWidget(QLabel("Output Medium (Substrate):"), 2, 0)
+        
+        self.output_medium_label = QLabel(self.output_medium['name'])
+        self.output_medium_label.setStyleSheet("font-weight: bold; color: #2c3e50;")
+        layout.addWidget(self.output_medium_label, 2, 1)
+        
+        self.select_output_btn = QPushButton("Select...")
+        self.select_output_btn.clicked.connect(self.select_output_medium)
+        layout.addWidget(self.select_output_btn, 2, 2)
 
+        # --- Row 3: Status & Help ---
         self.filter_status_label = QLabel("")
-        layout.addWidget(self.filter_status_label)
+        layout.addWidget(self.filter_status_label, 3, 1, 1, 2)
 
         help_text = QLabel("Syntax: Use (M1)^5 for repetition, * to combine layers")
         help_text.setWordWrap(True)
         help_text.setStyleSheet("color: #666; font-style: italic;")
-        layout.addWidget(help_text)
+        layout.addWidget(help_text, 4, 0, 1, 3)
 
+        # --- Row 5: Visualization Button ---
         self.show_visualization_btn = QPushButton("Show Filter")
         self.show_visualization_btn.clicked.connect(self.show_visualization)
-        layout.addWidget(self.show_visualization_btn)
+        layout.addWidget(self.show_visualization_btn, 5, 0, 1, 3)
 
-        layout.addStretch()
+        layout.setRowStretch(6, 1) # Push everything up
 
         parent_layout.addWidget(group_box)
 
@@ -1135,7 +1241,34 @@ class OpticalFilterApp(QMainWindow):
             materials_dict = self.material_table.get_materials()
             array_thicknesses = self.array_table.get_array_thicknesses()
 
-            stack = [(1.0, 0)]  # Air
+            # Initialize stack with selected Input Medium (Entrance)
+            stack = [(self.input_medium['id'], 0)]
+
+            # Build array usage mapping
+            array_usage_map = {}
+            arrays = self.array_table.get_arrays()
+            current_expanded_index = 0
+
+            for component in filter_def.split():
+                if component in arrays:
+                    array_def = arrays[component]
+                    array_layers = array_def.split("*")
+                    for layer_pos, layer_name in enumerate(array_layers):
+                        if current_expanded_index not in array_usage_map:
+                            array_usage_map[current_expanded_index] = {
+                                'array_id': component,
+                                'layer_position': layer_pos,
+                                'material': layer_name.strip()
+                            }
+                        current_expanded_index += 1
+                else:
+                    if current_expanded_index not in array_usage_map:
+                        array_usage_map[current_expanded_index] = {
+                            'array_id': None,
+                            'layer_position': None,
+                            'material': component
+                        }
+                    current_expanded_index += 1
 
             # Build the stack with correct thickness mapping
             for layer_info in expanded_filter_structure:
@@ -1177,7 +1310,8 @@ class OpticalFilterApp(QMainWindow):
                 else:
                     stack.append((material_data, layer_thickness))
 
-            stack.append((3.5, 0))  # Silicon substrate
+            # Add selected Output Medium (Substrate)
+            stack.append((self.output_medium['id'], 0))
 
             self.tmm_calculator = TMM_Calculator()
 

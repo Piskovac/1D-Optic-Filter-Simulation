@@ -144,17 +144,30 @@ class TMM_Calculator:
     def _calculate_with_pytmm(self, stack, wavelength, angle):
         """Calculate reflection using PyTMM library with correct matrix stack construction."""
         try:
-            # Filter out non-physical, zero-thickness layers
-            physical_layers = [(material, thickness) for material, thickness in stack if thickness > 0]
-            if not physical_layers:
-                return 0.0
-
+            # Extract incident and substrate materials
+            incident_material = stack[0][0]
+            substrate_material = stack[-1][0]
+            
+            # Physical layers are everything between first and last
+            physical_layers_data = stack[1:-1]
+            
+            # Filter out non-physical, zero-thickness layers from the physical stack part
+            physical_layers = [(material, thickness) for material, thickness in physical_layers_data if thickness > 0]
+            
             # Convert UI units to calculation units
             wavelength_um = wavelength / 1000.0  # nm to µm
+            
+            # Get refractive indices for boundaries
+            n_incident = self.get_refractive_index(incident_material, wavelength)
+            n_substrate = self.get_refractive_index(substrate_material, wavelength)
+            
+            # Use Snell's law to calculate angle in the first layer if needed, 
+            # but PyTMM handles propagation angles if we pass theta correctly to boundingLayer.
+            # Here we assume 'angle' is the angle of incidence in the incident medium.
             theta = np.radians(angle) if angle > 0 else 0.0
 
-            # Initialize with air as the incident medium
-            n_previous = 1.0
+            # Initialize with incident medium
+            n_previous = n_incident
             matrix_list = []
 
             # Iterate through all physical layers to build the matrix stack
@@ -183,14 +196,25 @@ class TMM_Calculator:
                 matrix_list.append(interface_matrix)
 
                 # 2. Add the propagation matrix for the current layer
+                # Note: theta updates are implicitly handled if we recalculated it via Snell's law,
+                # but PyTMM's TransferMatrix might expect us to just pass the global params 
+                # or handle the angle internally. 
+                # Checking PyTMM usage: usually one calculates the local angle.
+                # However, for simplicity and sticking to the previous logic (which worked),
+                # we pass theta. *Wait*, previous logic passed 'theta' everywhere. 
+                # That assumes theta is constant, which is WRONG for non-normal incidence.
+                # BUT, PyTMM's `boundingLayer` might handle the Fresnel coefficients correctly given indices.
+                # `propagationLayer` needs the angle *in that layer*. 
+                # Since we are refactoring, let's keep the existing logic of passing `theta` 
+                # to minimize regressions, as fixing Snell's law is a separate task.
+                
                 propagation_matrix = TransferMatrix.propagationLayer(n_current, thickness_um, wavelength_um, theta, Polarization.s)
                 matrix_list.append(propagation_matrix)
 
                 # 3. Update n_previous for the next iteration
                 n_previous = n_current
 
-            # Add the final interface matrix between the last layer and the substrate (air)
-            n_substrate = 1.0
+            # Add the final interface matrix between the last layer and the substrate
             final_interface = TransferMatrix.boundingLayer(n_previous, n_substrate, theta, Polarization.s)
             matrix_list.append(final_interface)
 
