@@ -42,15 +42,30 @@ class MaterialSearchAPI:
             if not os.path.exists(self.cache_dir):
                 os.makedirs(self.cache_dir)
 
-            if os.path.exists(self.db_cache_path):
+            # Check for bundled database in frozen environment (PyInstaller)
+            bundled_db_path = None
+            if getattr(sys, 'frozen', False):
+                base_path = sys._MEIPASS
+                bundled_db_path = os.path.join(base_path, "refractive_index_db.pickle")
+            
+            # Load from bundled file if available, otherwise check cache
+            if bundled_db_path and os.path.exists(bundled_db_path):
                 try:
-                    with open(self.db_cache_path, 'rb') as f:
+                    with open(bundled_db_path, 'rb') as f:
                         self.ri_instance = pickle.load(f)
                         self.catalog = self.ri_instance.catalog
-                    print("RefractiveIndex catalog loaded from cache!")
+                    print("RefractiveIndex catalog loaded from bundled file!")
+                    # Optionally copy to cache for persistence if needed, but not strictly necessary for read-only
                 except Exception as e:
-                    print(f"Error loading cached catalog: {e}")
-                    self._download_and_cache_catalog()
+                    print(f"Error loading bundled catalog: {e}")
+                    # Fallback to cache/download
+                    if os.path.exists(self.db_cache_path):
+                        self._load_from_cache()
+                    else:
+                        self._download_and_cache_catalog()
+
+            elif os.path.exists(self.db_cache_path):
+                self._load_from_cache()
             else:
                 self._download_and_cache_catalog()
 
@@ -62,6 +77,17 @@ class MaterialSearchAPI:
         except Exception as e:
             self.error_message = f"Error initializing material catalog: {str(e)}"
             print(f"Warning: {self.error_message}")
+
+    def _load_from_cache(self):
+        """Helper to load catalog from cache"""
+        try:
+            with open(self.db_cache_path, 'rb') as f:
+                self.ri_instance = pickle.load(f)
+                self.catalog = self.ri_instance.catalog
+            print("RefractiveIndex catalog loaded from cache!")
+        except Exception as e:
+            print(f"Error loading cached catalog: {e}")
+            self._download_and_cache_catalog()
 
     def _download_and_cache_catalog(self):
         """Download the catalog and save to cache"""

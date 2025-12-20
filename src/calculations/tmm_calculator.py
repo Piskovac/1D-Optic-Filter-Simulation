@@ -174,21 +174,6 @@ class TMM_Calculator:
             for material, thickness in physical_layers:
                 n_current = self.get_refractive_index(material, wavelength)
 
-                # TODO: SILINECEK - Hata ayıklama için n,k değerlerini dosyaya yazdır
-                try:
-                    # Sanitize material name to create a valid filename
-                    log_filename = str(material).replace('|', '_').replace(':', '_').replace('/', '_').replace('\\', '_')
-                    if log_filename.endswith('.yml'):
-                        log_filename = os.path.splitext(os.path.basename(log_filename))[0]
-                    
-                    log_filename = f"debug_{log_filename}.txt"
-
-                    with open(log_filename, 'a') as f:
-                        f.write(f"Wavelength(nm): {wavelength}\tn: {n_current.real}\tk: {n_current.imag}\n")
-                except Exception as log_e:
-                    print(f"DEBUGGING ERROR: Could not write to log file for '{material}'. {log_e}")
-                # TODO: SILINECEK - Hata ayıklama sonu
-
                 thickness_um = thickness / 1000.0
 
                 # 1. Add the interface matrix between the previous layer and the current one
