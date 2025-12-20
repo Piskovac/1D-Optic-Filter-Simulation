@@ -810,7 +810,7 @@ class OpticalFilterApp(QMainWindow):
 
         self.wavelength_steps = QSpinBox()
         self.wavelength_steps.setRange(1, 10000)
-        self.wavelength_steps.setValue(100)
+        self.wavelength_steps.setValue(1000)
         self.wavelength_steps.setSingleStep(1)
         self.wavelength_steps.setKeyboardTracking(True)
 
