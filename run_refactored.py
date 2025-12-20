@@ -1,6 +1,8 @@
 """
 Run script for the refactored optical filter designer.
 This script runs the application.
+pyinstaller command to create executable:
+python -m PyInstaller --noconfirm --onefile --windowed --icon "logo.png" --name "OpticalFilterDesigner" --paths "src" --add-data "src;src" --add-data "PyTMM;PyTMM" --add-data "refractive_index_db.pickle;." --hidden-import "numpy" --hidden-import "matplotlib" --hidden-import "PyQt5" --hidden-import "PyQt5.QtCore" --hidden-import "PyQt5.QtWidgets" --hidden-import "PyQt5.QtGui" --hidden-import "yaml" --hidden-import "src.main" run_refactored.py
 """
 
 import sys

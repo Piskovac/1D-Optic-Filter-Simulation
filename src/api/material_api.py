@@ -320,58 +320,60 @@ class MaterialHandler:
     @staticmethod
     def serialize_material(material, selected_variant=None):
         """Convert material data to a serializable format for saving"""
-        name, material_id, is_defect = material
+        # Unpack with optional thickness
+        if len(material) == 4:
+            name, material_id, is_defect, thickness = material
+        else:
+            name, material_id, is_defect = material
+            thickness = None
+
+        data = {
+            "name": name,
+            "is_defect": is_defect,
+            "thickness": thickness
+        }
 
         if isinstance(material_id, complex):
-            return {
-                "name": name,
+            data.update({
                 "type": "custom_complex",
                 "n": float(material_id.real),
-                "k": float(material_id.imag),
-                "is_defect": is_defect
-            }
+                "k": float(material_id.imag)
+            })
         elif isinstance(material_id, (int, float)):
-            return {
-                "name": name,
+            data.update({
                 "type": "custom_real",
-                "n": float(material_id),
-                "is_defect": is_defect
-            }
+                "n": float(material_id)
+            })
         elif isinstance(material_id, str) and material_id.endswith('.yml'):
-            return {
-                "name": name,
+            data.update({
                 "type": "browsed",
-                "file_path": material_id,
-                "is_defect": is_defect
-            }
+                "file_path": material_id
+            })
         elif isinstance(material_id, str) and '{' in material_id:
-            return {
-                "name": name,
+            data.update({
                 "type": "database_variants",
                 "variants_json": material_id,
-                "selected_variant": selected_variant,
-                "is_defect": is_defect
-            }
+                "selected_variant": selected_variant
+            })
         elif isinstance(material_id, str) and '|' in material_id:
-            return {
-                "name": name,
+            data.update({
                 "type": "database_selected",
-                "variant_id": material_id,
-                "is_defect": is_defect
-            }
+                "variant_id": material_id
+            })
         else:
-            return {
-                "name": name,
+            data.update({
                 "type": "unknown",
-                "data": str(material_id),
-                "is_defect": is_defect
-            }
+                "data": str(material_id)
+            })
+        
+        return data
 
     @staticmethod
     def deserialize_material(data):
         """Convert serialized data back to material format"""
         name = data["name"]
         is_defect = data.get("is_defect", False)
+        thickness = data.get("thickness", None)
         material_type = data["type"]
 
         if material_type == "custom_complex":
@@ -387,4 +389,6 @@ class MaterialHandler:
         else:
             material_id = data["data"]
 
-        return (name, material_id, is_defect)
+        return (name, material_id, is_defect, thickness)
+
+    

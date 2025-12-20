@@ -95,6 +95,11 @@ class DatabaseSearchWindow(QDialog):
 
         # --- Action Buttons ---
         button_layout = QHBoxLayout()
+        
+        # Checkbox for defect material
+        self.defect_checkbox = QCheckBox("Add as defect material")
+        button_layout.addWidget(self.defect_checkbox)
+
         self.add_material_btn = QPushButton("Add Selected Material")
         self.add_material_btn.setEnabled(False)  # Disabled until a page is selected
         self.add_material_btn.clicked.connect(self.add_selected_material)
@@ -240,7 +245,8 @@ class DatabaseSearchWindow(QDialog):
         raw_display_name = f"{book_id} - {page_data.get('name', page_id)}"
         cleaned_display_name = self.parent().clean_material_name(raw_display_name) # Apply cleaning
 
-        self.selected_material = (cleaned_display_name, full_material_id)
+        is_defect = self.defect_checkbox.isChecked()
+        self.selected_material = (cleaned_display_name, full_material_id, is_defect)
         self.accept()
 
 
@@ -571,10 +577,12 @@ class OpticalFilterApp(QMainWindow):
             
         dialog = DatabaseSearchWindow(self.material_api, self)
         if dialog.exec_() == QDialog.Accepted and dialog.selected_material:
-            material_name, material_id = dialog.selected_material
+            material_name, material_id, is_defect = dialog.selected_material
             label, ok = self.get_unique_label(f"Enter a unique ID for:\n{material_name}")
             if ok and label:
-                self.material_table.add_material(label, material_name, material_id)
+                # Default thickness for defect is 100.0 nm
+                thickness = 100.0 if is_defect else None
+                self.material_table.add_material(label, material_name, material_id, is_defect, thickness)
                 count = self.material_table.rowCount()
                 self.material_count_label.setText(f"Materials defined: {count}")
                 self.statusBar().showMessage(f"Added '{material_name}' as '{label}'.", 3000)
@@ -1018,7 +1026,7 @@ class OpticalFilterApp(QMainWindow):
                 # Single material
                 label, ok = self.get_unique_label("Enter material label:")
                 if ok:
-                    self.material_table.add_material(label, material_name, material_id)
+                    self.material_table.add_material(label, material_name, material_id, False, None)
                     dialog.accept()
             else:
                 QMessageBox.warning(self, "Error", "Invalid material ID format")
@@ -1062,7 +1070,9 @@ class OpticalFilterApp(QMainWindow):
                 return
 
             material_id = complex(n, k) if k > 0 else n
-            self.material_table.add_material(label, name, material_id, is_defect)
+            # Default thickness for defect is 100.0 nm
+            thickness = 100.0 if is_defect else None
+            self.material_table.add_material(label, name, material_id, is_defect, thickness)
             count = self.material_table.rowCount()
             self.material_count_label.setText(f"Materials defined: {count}")
 
@@ -1081,7 +1091,8 @@ class OpticalFilterApp(QMainWindow):
                 label, ok = self.get_unique_label("Enter material label:")
 
                 if ok:
-                    self.material_table.add_material(label, name, file_path)
+                    # Not a defect by default
+                    self.material_table.add_material(label, name, file_path, False, None)
                     count = self.material_table.rowCount()
                     self.material_count_label.setText(f"Materials defined: {count}")
 
@@ -1278,13 +1289,18 @@ class OpticalFilterApp(QMainWindow):
                 if layer_material not in materials_dict:
                      raise ValueError(f"Material {layer_material} not found in table")
 
-                _, material_data, is_defect = materials_dict[layer_material]
+                # Unpack 4 values now
+                _, material_data, is_defect, defect_thickness = materials_dict[layer_material]
 
                 # Determine thickness
-                layer_thickness = default_thickness_val
+                # Priority 1: If it's part of an array, use array thickness
+                # Priority 2: If it's a defect (or material with custom thickness), use that
+                # Priority 3: Default thickness
                 
-                # If this layer belongs to an array, try to find its custom thickness
+                layer_thickness = default_thickness_val
+
                 if layer_info['array_id'] is not None:
+                    # It's part of an array
                     array_id = layer_info['array_id']
                     layer_pos = layer_info['layer_index']
                     
@@ -1294,6 +1310,9 @@ class OpticalFilterApp(QMainWindow):
                     
                     if layer_key in array_thickness_data:
                         layer_thickness = array_thickness_data[layer_key]
+                elif defect_thickness is not None:
+                    # It's a defect or has custom thickness set
+                    layer_thickness = defect_thickness
 
                 if isinstance(material_data, str) and material_data.startswith('{'):
                     try:
@@ -1358,7 +1377,7 @@ class OpticalFilterApp(QMainWindow):
 
         for material_id in set(expanded_filter):
             if material_id in materials_dict:
-                material_name, material_data, is_defect = materials_dict[material_id]
+                material_name, material_data, is_defect, _ = materials_dict[material_id]
 
                 if not isinstance(material_data, str):
                     continue
@@ -1509,12 +1528,12 @@ class OpticalFilterApp(QMainWindow):
         if file_path:
             try:
                 # Serialize input and output mediums
-                # Helper tuple format: (name, id, is_defect) - is_defect is dummy here
+                # Helper tuple format: (name, id, is_defect, thickness)
                 input_med_serialized = MaterialHandler.serialize_material(
-                    (self.input_medium['name'], self.input_medium['id'], False)
+                    (self.input_medium['name'], self.input_medium['id'], False, None)
                 )
                 output_med_serialized = MaterialHandler.serialize_material(
-                    (self.output_medium['name'], self.output_medium['id'], False)
+                    (self.output_medium['name'], self.output_medium['id'], False, None)
                 )
 
                 project_data = {
@@ -1562,7 +1581,8 @@ class OpticalFilterApp(QMainWindow):
                 # Load materials
                 for label, material_data in project_data.get('materials', {}).items():
                     material = MaterialHandler.deserialize_material(material_data)
-                    self.material_table.add_material(label, material[0], material[1], material[2])
+                    # material is now (name, id, is_defect, thickness)
+                    self.material_table.add_material(label, material[0], material[1], material[2], material[3])
 
                 # Load arrays
                 for array_def in project_data.get('arrays', {}).values():
@@ -1581,14 +1601,15 @@ class OpticalFilterApp(QMainWindow):
 
                 # Load Input/Output Mediums
                 if 'input_medium' in project_data:
-                    in_name, in_id, _ = MaterialHandler.deserialize_material(project_data['input_medium'])
+                    # Ignore thickness/defect for IO mediums
+                    in_name, in_id, _, _ = MaterialHandler.deserialize_material(project_data['input_medium'])
                     self.update_medium_selection('input', in_name, in_id)
                 else:
                     # Default fallback
                     self.update_medium_selection('input', 'Air', 1.0)
 
                 if 'output_medium' in project_data:
-                    out_name, out_id, _ = MaterialHandler.deserialize_material(project_data['output_medium'])
+                    out_name, out_id, _, _ = MaterialHandler.deserialize_material(project_data['output_medium'])
                     self.update_medium_selection('output', out_name, out_id)
                 else:
                     # Default fallback
@@ -1598,6 +1619,8 @@ class OpticalFilterApp(QMainWindow):
                                        f"Project loaded from {file_path}")
 
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 QMessageBox.critical(self, "Load Error",
                                    f"Failed to load project: {str(e)}")
 

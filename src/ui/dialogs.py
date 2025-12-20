@@ -154,3 +154,45 @@ class ThicknessEditDialog(QDialog):
         for layer_key, spinbox in self.thickness_spinboxes.items():
             thicknesses[layer_key] = spinbox.value()
         return thicknesses
+
+
+class DefectThicknessDialog(QDialog):
+    """Dialog for editing the thickness of a defect layer"""
+
+    def __init__(self, material_label, current_thickness, parent=None):
+        super().__init__(parent)
+        self.material_label = material_label
+        self.current_thickness = current_thickness
+        self.setWindowTitle(f"Edit Thickness: {material_label}")
+        self.setup_ui()
+
+    def setup_ui(self):
+        """Setup the thickness editing UI"""
+        layout = QVBoxLayout(self)
+
+        info_label = QLabel(f"Set thickness for defect layer '{self.material_label}'")
+        layout.addWidget(info_label)
+
+        form = QFormLayout()
+
+        self.thickness_spin = QDoubleSpinBox()
+        self.thickness_spin.setRange(0.0, 100000.0)
+        self.thickness_spin.setValue(float(self.current_thickness))
+        self.thickness_spin.setSuffix(" nm")
+        self.thickness_spin.setDecimals(2)
+        
+        form.addRow("Thickness:", self.thickness_spin)
+        layout.addLayout(form)
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+        self.setMinimumWidth(300)
+
+    def get_thickness(self):
+        """Get the thickness value"""
+        return self.thickness_spin.value()
+
+    

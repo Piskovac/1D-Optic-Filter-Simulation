@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor
-from .dialogs import ThicknessEditDialog
+from .dialogs import ThicknessEditDialog, DefectThicknessDialog
 
 
 class MaterialTable(QTableWidget):
@@ -16,7 +16,7 @@ class MaterialTable(QTableWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setColumnCount(4)
-        self.setHorizontalHeaderLabels(["ID", "Material", "Defect", "Remove"])
+        self.setHorizontalHeaderLabels(["ID", "Material", "Defect / Thickness", "Remove"])
 
         self.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
         self.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
@@ -25,8 +25,9 @@ class MaterialTable(QTableWidget):
 
         self.setSelectionBehavior(QTableWidget.SelectRows)
         self.material_colors = {}
+        self.defect_thicknesses = {}  # Store custom thickness for defect layers
 
-    def add_material(self, label, material_name, material_id, is_defect=False):
+    def add_material(self, label, material_name, material_id, is_defect=False, thickness=None):
         """Add a material to the table with clean display"""
         row = self.rowCount()
         self.insertRow(row)
@@ -40,13 +41,23 @@ class MaterialTable(QTableWidget):
         material_item.setData(Qt.UserRole, material_id)
         self.setItem(row, 1, material_item)
 
-        defect_item = QTableWidgetItem("Yes" if is_defect else "No")
-        defect_item.setFlags(defect_item.flags() & ~Qt.ItemIsEditable)
-        self.setItem(row, 2, defect_item)
+        if is_defect:
+            # Add thickness button for defects
+            btn_text = f"Thickness ({thickness} nm)" if thickness else "Set Thickness"
+            if thickness is not None:
+                self.defect_thicknesses[label] = float(thickness)
+            
+            thickness_btn = QPushButton(btn_text)
+            thickness_btn.clicked.connect(lambda: self.edit_defect_thickness(row))
+            self.setCellWidget(row, 2, thickness_btn)
+        else:
+            defect_item = QTableWidgetItem("No")
+            defect_item.setFlags(defect_item.flags() & ~Qt.ItemIsEditable)
+            self.setItem(row, 2, defect_item)
 
         remove_btn = QPushButton("×")
         remove_btn.setMaximumWidth(30)
-        remove_btn.clicked.connect(lambda: self.removeRow(self.indexAt(remove_btn.pos()).row()))
+        remove_btn.clicked.connect(lambda: self.remove_material(row))
         self.setCellWidget(row, 3, remove_btn)
 
         if label not in self.material_colors:
@@ -55,6 +66,28 @@ class MaterialTable(QTableWidget):
 
         return row
 
+    def edit_defect_thickness(self, row):
+        """Open dialog to edit defect layer thickness"""
+        label = self.item(row, 0).text()
+        current_val = self.defect_thicknesses.get(label, 100.0) # Default 100nm
+        
+        dialog = DefectThicknessDialog(label, current_val, self)
+        if dialog.exec_() == QDialog.Accepted:
+            new_thickness = dialog.get_thickness()
+            self.defect_thicknesses[label] = new_thickness
+            
+            # Update button text
+            btn = self.cellWidget(row, 2)
+            if btn:
+                btn.setText(f"Thickness ({new_thickness:.1f} nm)")
+
+    def remove_material(self, row):
+        """Remove a material and its thickness data"""
+        label = self.item(row, 0).text()
+        if label in self.defect_thicknesses:
+            del self.defect_thicknesses[label]
+        self.removeRow(row)
+
     def get_materials(self):
         """Return a dictionary of all materials"""
         materials = {}
@@ -62,8 +95,13 @@ class MaterialTable(QTableWidget):
             label = self.item(row, 0).text()
             material_name = self.item(row, 1).text()
             material_id = self.item(row, 1).data(Qt.UserRole)
-            is_defect = self.item(row, 2).text() == "Yes"
-            materials[label] = (material_name, material_id, is_defect)
+            
+            # Check if it's a defect by checking if there's a widget in column 2
+            is_defect = self.cellWidget(row, 2) is not None
+            
+            thickness = self.defect_thicknesses.get(label, None)
+            
+            materials[label] = (material_name, material_id, is_defect, thickness)
         return materials
 
     def get_material_colors(self):
