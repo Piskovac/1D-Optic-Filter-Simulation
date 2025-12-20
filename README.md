@@ -2,7 +2,6 @@
 
 A powerful and user-friendly desktop application for designing and simulating 1D optical filters using the Transfer Matrix Method (TMM). This tool allows researchers and engineers to model complex multilayer thin-film structures, visualize their physical composition, and calculate their optical properties (reflection/transmission) across a spectrum of wavelengths.
 
-![Application Screenshot](logo.png)
 
 ## Features
 
