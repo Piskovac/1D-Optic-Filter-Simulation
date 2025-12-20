@@ -240,42 +240,67 @@ class FilterVisualizer(QWidget):
         painter.setRenderHint(QPainter.Antialiasing)
 
         colors = self.material_table.get_material_colors()
-        rect_width = 30
-        total_width = len(self.expanded_definition) * rect_width
-        self.setMinimumWidth(total_width)
-
+        
+        # Scale factor: 0.3 pixels per nm (so 100nm = 30px)
+        scale_factor = 0.3
+        
         rect_height = self.height() - 10
         y_pos = 5
+        current_x = 0
 
-        for i, layer in enumerate(self.expanded_definition):
-            x_pos = i * rect_width
+        for layer in self.expanded_definition:
+            label = layer['label']
+            thickness = layer['thickness']
+            
+            # Calculate width based on thickness
+            if label == "...":
+                rect_width = 30
+            else:
+                rect_width = max(5, int(thickness * scale_factor))
 
-            if layer == "...":
+            if label == "...":
                 painter.setPen(QPen(Qt.black, 2))
-                painter.drawText(QRect(x_pos, y_pos, rect_width, rect_height),
+                painter.drawText(QRect(current_x, y_pos, rect_width, rect_height),
                                  Qt.AlignCenter, "...")
             else:
-                if layer in colors:
-                    painter.setBrush(QBrush(colors[layer]))
+                if label in colors:
+                    painter.setBrush(QBrush(colors[label]))
                 else:
                     painter.setBrush(QBrush(Qt.lightGray))
 
                 painter.setPen(QPen(Qt.black, 1))
-                painter.drawRect(x_pos, y_pos, rect_width, rect_height)
+                painter.drawRect(current_x, y_pos, rect_width, rect_height)
 
-                painter.setPen(Qt.black)
-                font = painter.font()
-                font.setPointSize(8)
-                painter.setFont(font)
-                painter.drawText(QRect(x_pos, y_pos, rect_width, 20),
-                                 Qt.AlignCenter, layer)
+                # Draw text if width is sufficient
+                if rect_width > 15:
+                    painter.setPen(Qt.black)
+                    font = painter.font()
+                    font.setPointSize(8)
+                    painter.setFont(font)
+                    painter.drawText(QRect(current_x, y_pos, rect_width, 20),
+                                     Qt.AlignCenter, label)
+                    
+                    # Optional: Draw thickness below
+                    # painter.drawText(QRect(current_x, y_pos + 20, rect_width, 20),
+                    #                  Qt.AlignCenter, f"{int(thickness)}")
+
+            current_x += rect_width
+            
+        # Update widget width to fit content
+        self.setMinimumWidth(current_x + 20)
 
     def expand_filter(self, filter_definition):
-        """Expand the filter definition into a list of individual layers"""
+        """
+        Expand the filter definition into a list of individual layers with thickness data.
+        Returns list of dicts: {'label': 'SiO2', 'thickness': 100.0}
+        """
         if not filter_definition:
             return []
 
         arrays = self.array_table.get_arrays()
+        array_thicknesses = self.array_table.get_array_thicknesses()
+        default_thickness = 100.0
+        
         pattern = r'\(([^)]+)\)\^(\d+)'
 
         while re.search(pattern, filter_definition):
@@ -295,14 +320,32 @@ class FilterVisualizer(QWidget):
 
         for component in components:
             component = component.strip()
+            
             if component == "...":
-                expanded.append("...")
+                expanded.append({'label': '...', 'thickness': 0})
+            
             elif component in arrays:
                 array_def = arrays[component]
                 array_components = array_def.split("*")
-                expanded.extend(array_components)
+                
+                # Get thickness data for this array
+                this_array_thicknesses = array_thicknesses.get(component, {})
+                
+                for idx, layer_mat in enumerate(array_components):
+                    # Lookup thickness by index (layer_0, layer_1, etc.)
+                    t_key = f"layer_{idx}"
+                    t_val = this_array_thicknesses.get(t_key, default_thickness)
+                    
+                    expanded.append({
+                        'label': layer_mat.strip(),
+                        'thickness': t_val
+                    })
             else:
-                expanded.append(component)
+                # Standalone material
+                expanded.append({
+                    'label': component, 
+                    'thickness': default_thickness
+                })
 
         return expanded
 
