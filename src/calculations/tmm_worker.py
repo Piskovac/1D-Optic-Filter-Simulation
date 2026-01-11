@@ -8,7 +8,8 @@ from .tmm_calculator import TMM_Calculator
 class TMM_Worker(QThread):
     """Worker thread for TMM calculations"""
 
-    finished = pyqtSignal(object, object, object)
+    # Updated signal: (wavelengths, R, T, A, problematic)
+    finished = pyqtSignal(object, object, object, object, object)
     error = pyqtSignal(str)
     progress = pyqtSignal(int)
 
@@ -25,11 +26,12 @@ class TMM_Worker(QThread):
             def update_progress(percent):
                 self.progress.emit(percent)
 
-            R_TM, problematic = calculator.calculate_reflection(
+            # calculator.calculate_reflection now returns ((R, T, A), problematic)
+            (R, T, A), problematic = calculator.calculate_reflection(
                 self.stack, self.wavelengths, self.angle, update_progress
             )
 
-            self.finished.emit(self.wavelengths, R_TM, problematic)
+            self.finished.emit(self.wavelengths, R, T, A, problematic)
 
         except Exception as e:
             error_msg = f"Error: {str(e)}\n{traceback.format_exc()}"

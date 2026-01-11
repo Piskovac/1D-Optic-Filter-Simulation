@@ -28,7 +28,7 @@ from PyQt5.QtWidgets import (
     QDoubleSpinBox, QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QHeaderView,
     QLabel, QLineEdit, QMainWindow, QMenu, QMenuBar, QMessageBox, QPushButton, QScrollArea,
     QSlider, QSpinBox, QSplitter, QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout,
-    QAbstractItemView, QWidget, QTextBrowser, QGridLayout
+    QAbstractItemView, QWidget, QTextBrowser, QGridLayout, QButtonGroup
 )
 
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
@@ -488,32 +488,66 @@ class TMM_Plots(QWidget):
 
         layout.addWidget(self.canvas)
 
-    def plot_results(self, wavelengths, R_TE, R_TM):
-        """Plot the reflection spectrum"""
+    def plot_results(self, wavelengths, data, mode='R', use_db=True):
+        """Plot the spectrum based on mode (R, T, A) and scale (dB/Linear)"""
         self.ax.clear()
 
-        self.ax.set_title('Reflection Spectrum')
+        title_map = {'R': 'Reflection', 'T': 'Transmission', 'A': 'Absorption'}
+        base_title = title_map.get(mode, 'Spectrum')
+        
+        # Determine labels and data transformation
+        if use_db and mode in ['R', 'T']:
+            # Logarithmic Scale (dB)
+            title = f'{base_title} Spectrum (dB)'
+            ylabel = f'{base_title} (dB)'
+            
+            epsilon = 1e-10
+            plot_data = 10 * np.log10(data + epsilon)
+            
+            # Set Y limits for dB usually around 0 to -X
+            y_max = np.max(plot_data)
+            y_min = np.min(plot_data)
+            
+            if np.isfinite(y_min) and np.isfinite(y_max):
+                if y_max - y_min < 10:
+                    margin = 5
+                    self.ax.set_ylim(y_min - margin, y_max + margin)
+                else:
+                    self.ax.set_ylim(y_min, y_max + 2) # Give a little headroom
+
+        else:
+            # Linear Scale (0-1)
+            title = f'{base_title} Spectrum (Linear)'
+            ylabel = f'{base_title} (0-1)'
+            plot_data = data
+            self.ax.set_ylim(0, 1.05)
+
+        # Absorption is usually linear, but if user wants dB A (attenuation), we could support it.
+        # However, A=0 -> -inf dB. Usually A is viewed linearly.
+        # If mode is A, we force linear or handle it carefully.
+        if mode == 'A':
+            # Force linear for A for now as standard convention, or apply logic if needed.
+            # Let's respect the checkbox IF the user really wants log absorption (less common).
+            # But mostly users want Linear A. Let's stick to Linear A for this update unless requested.
+            if use_db:
+                 # If checkbox is checked but mode is A, show Linear but maybe warn or just show Linear?
+                 # Or treat A different. Let's make A always Linear for clarity unless explicitly asked.
+                 title = f'{base_title} Spectrum'
+                 ylabel = f'{base_title} (0-1)'
+                 plot_data = data
+                 self.ax.set_ylim(0, 1.05)
+
+        # Colors
+        colors = {'R': 'r-', 'T': 'g-', 'A': 'k-'}
+        color = colors.get(mode, 'b-')
+
+        self.ax.set_title(title)
         self.ax.set_xlabel('Wavelength (nm)')
-        self.ax.set_ylabel('Reflection (dB)')
+        self.ax.set_ylabel(ylabel)
 
-        epsilon = 1e-10
-        R_dB = 10 * np.log10(R_TM + epsilon)
-
-        self.ax.plot(wavelengths, R_dB, 'r-', linewidth=2)
-        self.ax.plot(wavelengths, R_dB, 'b--', linewidth=1.5)
+        self.ax.plot(wavelengths, plot_data, color, linewidth=2)
 
         self.ax.set_xlim(wavelengths[0], wavelengths[-1])
-
-        y_min = np.min(R_dB)
-        y_max = np.max(R_dB)
-
-        if np.isfinite(y_min) and np.isfinite(y_max):
-            if y_max - y_min < 10:
-                margin = 5
-                self.ax.set_ylim(y_min - margin, y_max + margin)
-            else:
-                self.ax.set_ylim(y_min, y_max)
-
         self.ax.grid(True, alpha=0.3)
         self.canvas.draw()
 
@@ -840,16 +874,43 @@ class OpticalFilterApp(QMainWindow):
         self.incident_angle.setKeyboardTracking(True)
         form_layout.addRow("Incident Angle:", self.incident_angle)
 
-        # Default thickness UI removed as per request
-        # self.default_thickness = QDoubleSpinBox()
-        # ...
-
         params_layout.addLayout(form_layout)
 
         self.calculate_btn = QPushButton("Calculate")
         self.calculate_btn.setStyleSheet("font-weight: bold; padding: 8px;")
         self.calculate_btn.clicked.connect(self.calculate_filter)
         params_layout.addWidget(self.calculate_btn)
+
+        # --- View Mode Buttons ---
+        view_layout = QHBoxLayout()
+        self.view_group = QButtonGroup(self)
+        
+        self.btn_ref = QPushButton("Reflection")
+        self.btn_ref.setCheckable(True)
+        self.btn_ref.setChecked(True)
+        self.view_group.addButton(self.btn_ref, 0)
+        view_layout.addWidget(self.btn_ref)
+        
+        self.btn_trans = QPushButton("Transmission")
+        self.btn_trans.setCheckable(True)
+        self.view_group.addButton(self.btn_trans, 1)
+        view_layout.addWidget(self.btn_trans)
+        
+        self.btn_abs = QPushButton("Absorption")
+        self.btn_abs.setCheckable(True)
+        self.view_group.addButton(self.btn_abs, 2)
+        view_layout.addWidget(self.btn_abs)
+
+        # dB Scale Checkbox
+        self.db_checkbox = QCheckBox("dB Scale")
+        self.db_checkbox.setChecked(True) # Default to dB for R/T
+        self.db_checkbox.toggled.connect(self.update_plot_view)
+        view_layout.addWidget(self.db_checkbox)
+        
+        self.view_group.buttonClicked.connect(self.update_plot_view)
+        
+        params_layout.addLayout(view_layout)
+        # -------------------------
 
         self.save_btn = QPushButton("Save Filter")
         self.save_btn.setStyleSheet("padding: 8px;")
@@ -1499,18 +1560,40 @@ class OpticalFilterApp(QMainWindow):
         """Update the status bar with calculation progress"""
         self.statusBar().showMessage(f"Calculating: {percent}% complete")
 
-    def calculation_finished(self, wavelengths, R_TM, problematic):
+    def calculation_finished(self, wavelengths, R, T, A, problematic):
         """Handle the completion of TMM calculation"""
         self.last_calculation_data = {
             'wavelengths': wavelengths,
-            'R_TM': R_TM
+            'R': R,
+            'T': T,
+            'A': A
         }
 
-        self.tmm_plots.plot_results(wavelengths, None, R_TM)
+        self.update_plot_view()
 
         self.statusBar().showMessage("Calculation complete", 3000)
         self.calculate_btn.setEnabled(True)
         self.calculate_btn.setText("Calculate")
+
+    def update_plot_view(self):
+        """Update the plot based on selected view mode"""
+        if not self.last_calculation_data:
+            return
+
+        wavelengths = self.last_calculation_data['wavelengths']
+        use_db = self.db_checkbox.isChecked()
+        
+        if self.btn_trans.isChecked():
+            data = self.last_calculation_data['T']
+            mode = 'T'
+        elif self.btn_abs.isChecked():
+            data = self.last_calculation_data['A']
+            mode = 'A'
+        else:
+            data = self.last_calculation_data['R']
+            mode = 'R'
+            
+        self.tmm_plots.plot_results(wavelengths, data, mode, use_db)
 
     def calculation_error(self, error_msg):
         """Handle errors in the TMM calculation"""
@@ -1639,15 +1722,18 @@ class OpticalFilterApp(QMainWindow):
                 import csv
                 with open(file_path, 'w', newline='') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['Wavelength (nm)', 'Reflection (dB)'])
+                    writer.writerow(['Wavelength (nm)', 'Reflection (dB)', 'Transmission (dB)', 'Absorption (0-1)'])
 
                     wavelengths = self.last_calculation_data['wavelengths']
-                    R_TM = self.last_calculation_data['R_TM']
+                    R = self.last_calculation_data['R']
+                    T = self.last_calculation_data['T']
+                    A = self.last_calculation_data['A']
 
                     epsilon = 1e-10
-                    for wl, r in zip(wavelengths, R_TM):
-                        r_db = 10 * np.log10(r + epsilon)
-                        writer.writerow([wl, r_db])
+                    for i in range(len(wavelengths)):
+                        r_db = 10 * np.log10(R[i] + epsilon)
+                        t_db = 10 * np.log10(T[i] + epsilon)
+                        writer.writerow([wavelengths[i], r_db, t_db, A[i]])
 
                 QMessageBox.information(self, "Export Successful",
                                        f"Results exported to {file_path}")

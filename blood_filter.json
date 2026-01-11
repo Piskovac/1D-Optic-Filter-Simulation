@@ -1,0 +1,79 @@
+{
+  "materials": {
+    "CSIO2": {
+      "name": "Custom SiO2 Layer",
+      "is_defect": false,
+      "thickness": null,
+      "type": "custom_real",
+      "n": 1.453
+    },
+    "CZNTE": {
+      "name": "Custom ZnTe Layer",
+      "is_defect": false,
+      "thickness": null,
+      "type": "custom_real",
+      "n": 2.8529
+    },
+    "SiO2": {
+      "name": "SiO2 - Malitson 1965: n 0.21\u20136.7 \u00b5m",
+      "is_defect": false,
+      "thickness": null,
+      "type": "database_selected",
+      "variant_id": "main|SiO2|Malitson"
+    },
+    "ZnTe": {
+      "name": "ZnTe - Marple 1964: n 0.58\u20132.5 \u00b5m",
+      "is_defect": false,
+      "thickness": null,
+      "type": "database_selected",
+      "variant_id": "main|ZnTe|Marple"
+    },
+    "NHG": {
+      "name": "Normal Hemoglobin",
+      "is_defect": true,
+      "thickness": 800.0,
+      "type": "custom_real",
+      "n": 1.365
+    },
+    "IHG": {
+      "name": "Infected Hemoglobin",
+      "is_defect": true,
+      "thickness": 800.0,
+      "type": "custom_real",
+      "n": 1.4
+    }
+  },
+  "arrays": {
+    "M1": "CSIO2*CZNTE",
+    "M2": "SiO2*ZnTe"
+  },
+  "array_thicknesses": {
+    "M1": {
+      "layer_0": 130,
+      "layer_1": 60
+    },
+    "M2": {
+      "layer_0": 130,
+      "layer_1": 60
+    }
+  },
+  "filter_definition": "(M1)^5*IHG*(M1)^5",
+  "wavelength_start": 800.0,
+  "wavelength_end": 840.0,
+  "wavelength_step": 1000,
+  "angle": 0.0,
+  "input_medium": {
+    "name": "Air",
+    "is_defect": false,
+    "thickness": null,
+    "type": "custom_real",
+    "n": 1.0
+  },
+  "output_medium": {
+    "name": "Air",
+    "is_defect": false,
+    "thickness": null,
+    "type": "custom_real",
+    "n": 1.0
+  }
+}
